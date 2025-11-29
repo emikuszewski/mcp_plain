@@ -25,7 +25,7 @@ import {
 // ============================================================================
 
 const PIPELINE_STEPS = [
-  { id: 0, name: 'Start', icon: Play, description: 'Configure and start the demo' },
+  { id: 0, name: 'Start', icon: Play, description: 'Configure and start the simulation' },
   { id: 1, name: 'Request', icon: User, description: 'User submits request to AI Assistant' },
   { id: 2, name: 'OAuth 2.1', icon: Key, description: 'Authentication via OAuth 2.1 with PKCE' },
   { id: 3, name: 'Gate 1', icon: Filter, description: 'Tool Discovery Filter - Filter available tools' },
@@ -405,7 +405,7 @@ const CTAModal = ({ isOpen, onClose }) => {
               className="w-full flex items-center justify-center space-x-2 px-6 py-3 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg hover:shadow-lg transition-all"
             >
               <Calendar size={18} />
-              <span>Schedule Live Demo</span>
+              <span>Schedule a Walkthrough</span>
             </button>
             
             <button 
@@ -642,7 +642,7 @@ export default function PlainIDMCPAuthorizerDemo() {
               Zero-Trust Policy-Based Access Control for the Modern Enterprise
             </p>
             <p className="text-gray-500 mb-8">
-              Select a role and scenario above, then click "Start Demo" to see the authorization pipeline in action.
+              Select a role and scenario above, then click "Start Simulation" to see the authorization pipeline in action.
             </p>
           </div>
         );
@@ -1444,7 +1444,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                 {/* Scenario Selection */}
                 <div className="lg:col-span-2">
                   <h3 className="text-sm font-semibold text-deep-teal uppercase tracking-wider mb-3">
-                    Select Demo Scenario
+                    Select Scenario
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     <ScenarioSelector 
@@ -1476,7 +1476,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                   <h3 className="text-lg font-semibold text-deep-teal">MCP Authorization Pipeline</h3>
                   <p className="text-sm text-gray-500">
                     {currentStep === 0 
-                      ? 'Click "Start Demo" to see the authorization flow'
+                      ? 'Click "Start Simulation" to see the authorization flow'
                       : PIPELINE_STEPS[currentStep].description
                     }
                   </p>
@@ -1488,7 +1488,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                       className="flex items-center px-6 py-2.5 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg font-medium shadow-sm hover:shadow-md transition-all"
                     >
                       <Play size={18} className="mr-2" />
-                      Start Demo
+                      Start Simulation
                     </button>
                   )}
                   {currentStep > 0 && currentStep < PIPELINE_STEPS.length - 1 && (
@@ -1590,7 +1590,7 @@ export default function PlainIDMCPAuthorizerDemo() {
               >
                 SE Team
               </a>
-              {' '}for Demonstration Purposes
+              {' '}for Walkthrough Purposes
             </p>
           </div>
         </div>
