@@ -42,10 +42,10 @@ const STEP_DURATIONS = [0, 2000, 2500, 3000, 2000, 3000, 2000, 2500, 0];
 // SUB-COMPONENTS
 // ============================================================================
 
-// Beta Tag
-const BetaTag = () => (
+// Alpha Tag
+const AlphaTag = () => (
   <span className="ml-2 px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded uppercase">
-    Beta
+    Alpha
   </span>
 );
 
@@ -1232,7 +1232,7 @@ export default function PlainIDMCPAuthorizerDemo() {
             <div>
               <h3 className="text-xl font-semibold text-gray-900 flex items-center">
                 With PlainID
-                <BetaTag />
+                <AlphaTag />
               </h3>
               <p className="text-sm text-gray-500">Dynamic Authorization for MCP</p>
             </div>
@@ -1387,7 +1387,7 @@ export default function PlainIDMCPAuthorizerDemo() {
             <div className="ml-3">
               <h1 className="text-xl font-medium text-deep-teal tracking-tight flex items-center">
                 PlainID MCP Authorizer
-                <BetaTag />
+                <AlphaTag />
               </h1>
               <p className="text-xs text-gray-500">Dynamic Authorization for MCP-Powered Agents</p>
             </div>
@@ -1564,7 +1564,7 @@ export default function PlainIDMCPAuthorizerDemo() {
               <div className="ml-3">
                 <p className="font-medium flex items-center">
                   PlainID MCP Authorizer
-                  <BetaTag />
+                  <AlphaTag />
                 </p>
                 <p className="text-sm text-gray-300">Zero-Trust Authorization for AI Agents</p>
               </div>
