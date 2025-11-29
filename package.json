@@ -1,0 +1,40 @@
+{
+  "name": "plainid-mcp-authorizer-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dynamic Authorization for MCP-Powered Agents - Zero-Trust Policy-Based Access Control",
+  "keywords": ["plainid", "mcp", "authorization", "ai-security", "pbac", "zero-trust"],
+  "homepage": "https://mcp.plainid-demo.com",
+  "dependencies": {
+    "lucide-react": "^0.263.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "tailwindcss": "^3.3.1",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.21"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
