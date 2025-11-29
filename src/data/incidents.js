@@ -27,7 +27,7 @@ export const incidents = [
       outcome: 'Request denied - tenant mismatch detected',
       protection: 'Zero cross-tenant data exposure',
     },
-    demo_scenario: {
+    simulation_scenario: {
       query: 'Show me account details for customer #99999',
       user_tenant: 'acme-corp',
       resource_tenant: 'other-corp',
@@ -66,7 +66,7 @@ export const incidents = [
       outcome: 'Sensitive fields automatically redacted based on user/agent permissions',
       protection: 'SSN, account numbers, and confidential data masked',
     },
-    demo_scenario: {
+    simulation_scenario: {
       query: 'Get full customer profile for #12345',
       sensitive_fields: ['ssn', 'account_number', 'credit_score'],
       gate: 3,
@@ -107,7 +107,7 @@ export const incidents = [
       outcome: 'Users only see tools they are authorized to use',
       protection: 'Admin tools completely hidden from non-admin users',
     },
-    demo_scenario: {
+    simulation_scenario: {
       query: 'List all available tools',
       user_role: 'teller',
       all_tools: 12,
