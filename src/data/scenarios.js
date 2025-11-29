@@ -1,10 +1,10 @@
-// Demo scenarios with queries and expected outcomes
+// Walkthrough scenarios with queries and expected outcomes
 export const scenarios = [
   {
     id: 'account_lookup_success',
     name: 'Account Lookup',
     query: 'Show me the account details for customer #12345',
-    description: 'Basic account lookup - demonstrates successful authorization with response masking',
+    description: 'Basic account lookup - shows successful authorization with response masking',
     tool: 'get_account_details',
     params: { account_id: '12345', branch: 'central' },
     expectedOutcomes: {
@@ -60,7 +60,7 @@ export const scenarios = [
     id: 'cross_branch_denied',
     name: 'Cross-Branch Access',
     query: 'Show me accounts from the Downtown branch',
-    description: 'Attempts to access data from another branch - demonstrates scope enforcement',
+    description: 'Attempts to access data from another branch - shows scope enforcement',
     tool: 'get_account_details',
     params: { account_id: '67890', branch: 'downtown' },
     expectedOutcomes: {
@@ -101,7 +101,7 @@ export const scenarios = [
     id: 'loan_tool_access',
     name: 'Loan Status Check',
     query: 'What is the status of loan application #L-789?',
-    description: 'Attempts to access loan tools - demonstrates tool filtering',
+    description: 'Attempts to access loan tools - shows tool filtering',
     tool: 'get_loan_details',
     params: { loan_id: 'L-789' },
     expectedOutcomes: {
@@ -154,7 +154,7 @@ export const scenarios = [
     id: 'loan_approval_within_limit',
     name: 'Loan Approval (Within Limit)',
     query: 'Approve the $40,000 loan for customer #12345',
-    description: 'Loan approval within officer limit - demonstrates parameter-level authorization',
+    description: 'Loan approval within officer limit - shows parameter-level authorization',
     tool: 'approve_loan',
     params: { loan_id: 'L-789', amount: 40000 },
     expectedOutcomes: {
@@ -209,7 +209,7 @@ export const scenarios = [
     id: 'loan_approval_over_limit',
     name: 'Loan Approval (Over Limit)',
     query: 'Approve the $75,000 loan for customer #12345',
-    description: 'Loan approval exceeding officer limit - demonstrates limit enforcement',
+    description: 'Loan approval exceeding officer limit - shows limit enforcement',
     tool: 'approve_loan',
     params: { loan_id: 'L-456', amount: 75000 },
     expectedOutcomes: {
@@ -255,7 +255,7 @@ export const scenarios = [
     id: 'admin_tool_attempt',
     name: 'Admin Tool Access',
     query: 'Override the transaction limit for account #12345 to $50,000',
-    description: 'Attempts to use admin-only tool - demonstrates complete tool hiding',
+    description: 'Attempts to use admin-only tool - shows complete tool hiding',
     tool: 'override_transaction_limit',
     params: { account_id: '12345', new_limit: 50000 },
     expectedOutcomes: {
