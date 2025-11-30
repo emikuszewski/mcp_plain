@@ -1,1763 +1,1159 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  Shield, User, Bot, Server, Database, Filter, Eye, Lock, Unlock,
-  Check, X, AlertTriangle, ChevronRight, ArrowRight, Play, RotateCcw,
-  Calendar, Download, FileText, Key, Layers, Users, MapPin, Clock,
-  CheckCircle, XCircle, AlertCircle, Info, Zap, Activity, GitBranch,
-  ArrowLeftRight, ShieldCheck, EyeOff
+  Shield, User, Bot, Server, Check, X, AlertTriangle, 
+  ChevronDown, Play, RotateCcw, Eye, EyeOff,
+  Lock, Unlock, ArrowRight, Info,
+  CheckCircle, XCircle, Zap, Sparkles, GitCompare, FileWarning
 } from 'lucide-react';
 
-// Import data
-import { roles, getRoleById } from './data/roles';
-import { agent } from './data/agents';
-import { scenarios, getScenarioById } from './data/scenarios';
-import { mcpServers, getAllTools, getToolByName } from './data/mcpServers';
-import { incidents } from './data/incidents';
-import { policies } from './data/policies';
-
-// Import utilities
-import { 
-  evaluateGate1, evaluateGate2, evaluateGate3,
-  generateAuthContext, generateRequestId, generateTimestamp 
-} from './utils/authorizationEngine';
-
 // ============================================================================
-// CONSTANTS
+// Alpha Tag Component
 // ============================================================================
-
-const PIPELINE_STEPS = [
-  { id: 0, name: 'Start', icon: Play, description: 'Configure and start the simulation' },
-  { id: 1, name: 'Request', icon: User, description: 'User submits request to AI Assistant' },
-  { id: 2, name: 'OAuth 2.1', icon: Key, description: 'Authentication via OAuth 2.1 with PKCE' },
-  { id: 3, name: 'Gate 1', icon: Filter, description: 'Tool Discovery Filter - Filter available tools' },
-  { id: 4, name: 'Select Tool', icon: Bot, description: 'AI Agent selects appropriate tool' },
-  { id: 5, name: 'Gate 2', icon: Shield, description: 'Execution Authorization - Validate tool call' },
-  { id: 6, name: 'Execute', icon: Server, description: 'MCP Server executes the tool' },
-  { id: 7, name: 'Gate 3', icon: Eye, description: 'Response Masking - Redact sensitive data' },
-  { id: 8, name: 'Complete', icon: Check, description: 'Secure response delivered to user' },
-];
-
-const STEP_DURATIONS = [0, 2000, 2500, 3000, 2000, 3000, 2000, 2500, 0];
-
-// ============================================================================
-// SUB-COMPONENTS
-// ============================================================================
-
-// Alpha Tag
 const AlphaTag = () => (
-  <span className="ml-2 px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded uppercase">
+  <span className="ml-2 px-1.5 py-0.5 text-xs font-medium bg-violet-100 text-violet-800 rounded uppercase">
     Alpha
   </span>
 );
 
-// Architecture Badge - NEW: Shows PlainID's position in the flow
-const ArchitectureBadge = () => (
-  <div className="inline-flex items-center px-3 py-1.5 bg-gradient-to-r from-teal-50 to-blue-50 border border-teal-200 rounded-lg text-sm">
-    <ArrowLeftRight size={14} className="text-teal-600 mr-2" />
-    <span className="text-teal-800 font-medium">Inline Proxy Architecture</span>
-  </div>
+// ============================================================================
+// DATA
+// ============================================================================
+
+const roles = {
+  teller: {
+    id: 'teller',
+    name: 'Bank Teller',
+    icon: '🏦',
+    description: 'Front-line customer service',
+    access: 'Basic',
+    color: 'blue',
+    toolsVisible: 3,
+    toolsTotal: 12,
+  },
+  loan_officer: {
+    id: 'loan_officer', 
+    name: 'Loan Officer',
+    icon: '📋',
+    description: 'Processes loan applications',
+    access: 'Limited',
+    color: 'amber',
+    toolsVisible: 7,
+    toolsTotal: 12,
+  },
+  branch_manager: {
+    id: 'branch_manager',
+    name: 'Branch Manager',
+    icon: '👔',
+    description: 'Oversees all operations',
+    access: 'Full',
+    color: 'green',
+    toolsVisible: 11,
+    toolsTotal: 12,
+  }
+};
+
+const scenarios = [
+  {
+    id: 'account_lookup',
+    name: 'Look up customer account',
+    description: 'Basic account inquiry - shows data masking',
+    tool: 'get_account_details',
+    outcomes: {
+      teller: { allowed: true, masked: ['SSN'], result: 'success' },
+      loan_officer: { allowed: true, masked: ['SSN'], result: 'success' },
+      branch_manager: { allowed: true, masked: ['SSN'], result: 'success' },
+    }
+  },
+  {
+    id: 'cross_branch',
+    name: 'Access another branch\'s data',
+    description: 'Shows branch boundary enforcement',
+    tool: 'get_account_details',
+    outcomes: {
+      teller: { allowed: false, reason: 'Branch boundary violation', result: 'denied' },
+      loan_officer: { allowed: false, reason: 'Branch boundary violation', result: 'denied' },
+      branch_manager: { allowed: true, masked: ['SSN'], result: 'success' },
+    }
+  },
+  {
+    id: 'approve_loan',
+    name: 'Approve a $75,000 loan',
+    description: 'Shows role-based limits',
+    tool: 'approve_loan',
+    outcomes: {
+      teller: { allowed: false, reason: 'Tool not available', result: 'denied' },
+      loan_officer: { allowed: false, reason: 'Exceeds $50K limit', result: 'denied' },
+      branch_manager: { allowed: true, masked: [], result: 'success' },
+    }
+  },
+  {
+    id: 'admin_override',
+    name: 'Override transaction limits',
+    description: 'Shows admin tool hiding',
+    tool: 'override_transaction_limit',
+    outcomes: {
+      teller: { allowed: false, reason: 'Tool hidden', result: 'denied' },
+      loan_officer: { allowed: false, reason: 'Tool hidden', result: 'denied' },
+      branch_manager: { allowed: false, reason: 'Requires sysadmin', result: 'denied' },
+    }
+  },
+];
+
+const incidents = [
+  {
+    id: 'asana_cross_tenant',
+    name: 'Cross-Tenant Data Exposure',
+    company: 'Asana',
+    date: 'June 2025',
+    severity: 'critical',
+    description: 'Asana\'s MCP server exposed data from one customer\'s tenant to another due to insufficient tenant isolation.',
+    impact: '~1,000 customers affected, MCP taken offline June 5-17, 2025',
+    without_plainid: {
+      outcome: 'User A queries MCP server and receives User B\'s data. Cross-tenant data breach.',
+    },
+    with_plainid: {
+      outcome: 'PlainID proxy validates tenant context at Gate 2. Request blocked — tenant mismatch detected.',
+    },
+  },
+  {
+    id: 'slack_mcp_cve',
+    name: 'Sensitive Data Leakage',
+    company: 'Slack MCP Server',
+    date: 'May 2025',
+    severity: 'high',
+    cve: 'CVE-2025-34072',
+    description: 'A widely used but deprecated Slack MCP server leaked sensitive data in API responses.',
+    impact: 'CVE issued, reference servers archived and unpatched',
+    without_plainid: {
+      outcome: 'MCP server returns raw data including PII and confidential fields to any caller.',
+    },
+    with_plainid: {
+      outcome: 'PlainID proxy intercepts response at Gate 3 and masks sensitive fields before forwarding to agent.',
+    },
+  },
+  {
+    id: 'backslash_exposure',
+    name: 'Excessive Permissions',
+    company: 'Industry-Wide (Backslash Research)',
+    date: 'June 2025',
+    severity: 'high',
+    description: '~7,000 MCP servers found on public web with hundreds allowing unauthenticated access and elevated privileges.',
+    impact: 'Widespread exposure enabling data leakage and privilege escalation',
+    without_plainid: {
+      outcome: 'All MCP tools exposed to all authenticated users regardless of role or need.',
+    },
+    with_plainid: {
+      outcome: 'PlainID proxy filters tools/list response at Gate 1. Agent only sees tools they\'re authorized to use.',
+    },
+  }
+];
+
+// ============================================================================
+// COMPONENTS
+// ============================================================================
+
+const Header = ({ activeView, onViewChange }) => (
+  <header className="bg-white border-b border-gray-100 sticky top-0 z-50">
+    <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div className="flex items-center space-x-3">
+        <div className="w-9 h-9 bg-gradient-to-br from-teal-500 to-teal-600 rounded-lg flex items-center justify-center text-white shadow-sm">
+          <Shield size={18} />
+        </div>
+        <div>
+          <h1 className="text-base font-semibold text-gray-900 flex items-center">
+            PlainID MCP Authorizer
+            <AlphaTag />
+          </h1>
+          <p className="text-xs text-gray-500">Zero-Trust AI Authorization</p>
+        </div>
+      </div>
+      
+      <div className="flex items-center space-x-2">
+        <button
+          onClick={() => onViewChange('simulation')}
+          className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+            activeView === 'simulation' 
+              ? 'bg-teal-500 text-white' 
+              : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          Simulation
+        </button>
+        <button
+          onClick={() => onViewChange('compare')}
+          className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center ${
+            activeView === 'compare' 
+              ? 'bg-teal-500 text-white' 
+              : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          <GitCompare size={14} className="mr-1.5" />
+          Compare
+        </button>
+        <button
+          onClick={() => onViewChange('incidents')}
+          className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center ${
+            activeView === 'incidents' 
+              ? 'bg-teal-500 text-white' 
+              : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          <FileWarning size={14} className="mr-1.5" />
+          Incidents
+        </button>
+      </div>
+    </div>
+  </header>
 );
 
-// JSON Viewer with syntax highlighting
-const JsonViewer = ({ data, title, maxHeight = '300px' }) => {
-  const formatJson = (obj, indent = 0) => {
-    const spaces = '  '.repeat(indent);
-    
-    if (obj === null) return <span className="text-gray-500">null</span>;
-    if (typeof obj === 'boolean') return <span className="text-red-600">{obj.toString()}</span>;
-    if (typeof obj === 'number') return <span className="text-blue-600">{obj}</span>;
-    if (typeof obj === 'string') return <span className="text-green-700">"{obj}"</span>;
-    
-    if (Array.isArray(obj)) {
-      if (obj.length === 0) return <span>[]</span>;
-      return (
-        <>
-          {'[\n'}
-          {obj.map((item, i) => (
-            <span key={i}>
-              {spaces}  {formatJson(item, indent + 1)}
-              {i < obj.length - 1 ? ',' : ''}{'\n'}
-            </span>
-          ))}
-          {spaces}{']'}
-        </>
-      );
-    }
-    
-    if (typeof obj === 'object') {
-      const keys = Object.keys(obj);
-      if (keys.length === 0) return <span>{'{}'}</span>;
-      return (
-        <>
-          {'{\n'}
-          {keys.map((key, i) => (
-            <span key={key}>
-              {spaces}  <span className="text-purple-600">"{key}"</span>: {formatJson(obj[key], indent + 1)}
-              {i < keys.length - 1 ? ',' : ''}{'\n'}
-            </span>
-          ))}
-          {spaces}{'}'}
-        </>
-      );
-    }
-    
-    return String(obj);
-  };
+const HeroSection = ({ onStartSimulation }) => (
+  <section className="bg-gradient-to-b from-slate-50 to-white py-12">
+    <div className="max-w-4xl mx-auto px-4 text-center">
+      <h2 className="text-2xl md:text-3xl font-bold text-gray-900 mb-3">
+        Dynamic Authorization for
+        <span className="text-teal-600"> MCP-Powered Agents</span>
+      </h2>
+      <p className="text-base text-gray-600 mb-8 max-w-xl mx-auto">
+        PlainID sits between your AI agents and MCP servers, ensuring they only see 
+        and do what policy permits.
+      </p>
+      
+      <div className="grid md:grid-cols-2 gap-4 mb-8 max-w-2xl mx-auto">
+        <div className="bg-white rounded-xl border-2 border-red-100 p-5 text-left">
+          <div className="flex items-center mb-3">
+            <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center mr-2">
+              <Unlock className="text-red-500" size={16} />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 text-sm">Without PlainID</h3>
+              <p className="text-xs text-gray-500">Standard MCP</p>
+            </div>
+          </div>
+          <ul className="space-y-2">
+            <li className="flex items-start text-sm">
+              <X size={14} className="text-red-500 mr-2 mt-0.5 flex-shrink-0" />
+              <span className="text-gray-700">All 12 tools visible to everyone</span>
+            </li>
+            <li className="flex items-start text-sm">
+              <X size={14} className="text-red-500 mr-2 mt-0.5 flex-shrink-0" />
+              <span className="text-gray-700">No parameter-level checks</span>
+            </li>
+            <li className="flex items-start text-sm">
+              <X size={14} className="text-red-500 mr-2 mt-0.5 flex-shrink-0" />
+              <span className="text-gray-700">SSN & sensitive data exposed</span>
+            </li>
+          </ul>
+        </div>
+        
+        <div className="bg-white rounded-xl border-2 border-teal-200 p-5 text-left shadow-lg shadow-teal-50">
+          <div className="flex items-center mb-3">
+            <div className="w-8 h-8 bg-teal-100 rounded-full flex items-center justify-center mr-2">
+              <Shield className="text-teal-600" size={16} />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-900 text-sm">With PlainID</h3>
+              <p className="text-xs text-gray-500">Authorization Proxy</p>
+            </div>
+          </div>
+          <ul className="space-y-2">
+            <li className="flex items-start text-sm">
+              <Check size={14} className="text-teal-600 mr-2 mt-0.5 flex-shrink-0" />
+              <span className="text-gray-700">Only permitted tools visible</span>
+            </li>
+            <li className="flex items-start text-sm">
+              <Check size={14} className="text-teal-600 mr-2 mt-0.5 flex-shrink-0" />
+              <span className="text-gray-700">Scope & limit enforcement</span>
+            </li>
+            <li className="flex items-start text-sm">
+              <Check size={14} className="text-teal-600 mr-2 mt-0.5 flex-shrink-0" />
+              <span className="text-gray-700">Automatic PII masking</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+      
+      <button
+        onClick={onStartSimulation}
+        className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-teal-500 to-teal-600 text-white font-medium rounded-xl hover:shadow-lg hover:shadow-teal-100 transition-all"
+      >
+        <Play size={18} className="mr-2" />
+        Run Interactive Simulation
+      </button>
+    </div>
+  </section>
+);
 
-  return (
-    <div className="bg-gray-900 rounded-lg overflow-hidden">
-      {title && (
-        <div className="bg-gray-800 px-4 py-2 text-sm text-gray-300 font-medium border-b border-gray-700">
-          {title}
+const HowItWorks = ({ isExpanded, onToggle }) => (
+  <section className="border-b border-gray-100 bg-white">
+    <div className="max-w-4xl mx-auto px-4">
+      <button
+        onClick={onToggle}
+        className="w-full py-3 flex items-center justify-between text-left"
+      >
+        <div className="flex items-center">
+          <Info size={16} className="text-teal-500 mr-2" />
+          <span className="font-medium text-gray-700 text-sm">How does it work?</span>
+        </div>
+        <ChevronDown 
+          size={18} 
+          className={`text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
+        />
+      </button>
+      
+      {isExpanded && (
+        <div className="pb-6">
+          <div className="bg-slate-50 rounded-xl p-5">
+            <div className="flex items-center justify-between max-w-md mx-auto mb-5">
+              <div className="text-center">
+                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mx-auto mb-1">
+                  <Bot className="text-blue-600" size={20} />
+                </div>
+                <span className="text-xs text-gray-600">AI Agent</span>
+              </div>
+              <ArrowRight className="text-gray-300" size={20} />
+              <div className="text-center">
+                <div className="w-12 h-12 bg-teal-500 rounded-lg flex items-center justify-center mx-auto mb-1 shadow-md">
+                  <Shield className="text-white" size={20} />
+                </div>
+                <span className="text-xs text-teal-700 font-medium">PlainID</span>
+              </div>
+              <ArrowRight className="text-gray-300" size={20} />
+              <div className="text-center">
+                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-1">
+                  <Server className="text-green-600" size={20} />
+                </div>
+                <span className="text-xs text-gray-600">MCP Server</span>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-white rounded-lg p-3 border border-teal-100">
+                <div className="flex items-center mb-1">
+                  <div className="w-5 h-5 bg-teal-500 text-white rounded-full flex items-center justify-center text-xs font-bold mr-1.5">1</div>
+                  <span className="font-medium text-gray-900 text-xs">Tool Filter</span>
+                </div>
+                <p className="text-xs text-gray-600">Hide unauthorized tools</p>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-blue-100">
+                <div className="flex items-center mb-1">
+                  <div className="w-5 h-5 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-bold mr-1.5">2</div>
+                  <span className="font-medium text-gray-900 text-xs">Exec Auth</span>
+                </div>
+                <p className="text-xs text-gray-600">Validate parameters</p>
+              </div>
+              <div className="bg-white rounded-lg p-3 border border-purple-100">
+                <div className="flex items-center mb-1">
+                  <div className="w-5 h-5 bg-purple-500 text-white rounded-full flex items-center justify-center text-xs font-bold mr-1.5">3</div>
+                  <span className="font-medium text-gray-900 text-xs">Mask Data</span>
+                </div>
+                <p className="text-xs text-gray-600">Redact sensitive fields</p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
-      <pre 
-        className="p-4 text-sm font-mono overflow-auto text-gray-100"
-        style={{ maxHeight }}
-      >
-        {formatJson(data)}
-      </pre>
     </div>
-  );
-};
+  </section>
+);
 
-// Decision Badge
-const DecisionBadge = ({ decision, size = 'md' }) => {
-  const configs = {
-    PERMIT: { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-200', icon: CheckCircle },
-    DENY: { bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-200', icon: XCircle },
-    FILTER: { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-200', icon: Filter },
-    MASK: { bg: 'bg-purple-100', text: 'text-purple-800', border: 'border-purple-200', icon: Eye },
-    PASS: { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-200', icon: Check },
-    PENDING: { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-200', icon: Clock },
-  };
-  
-  const config = configs[decision] || configs.PENDING;
-  const Icon = config.icon;
-  const sizeClasses = size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm';
-  
-  return (
-    <span className={`inline-flex items-center ${sizeClasses} rounded-full font-medium border ${config.bg} ${config.text} ${config.border}`}>
-      <Icon size={size === 'sm' ? 12 : 14} className="mr-1" />
-      {decision}
-    </span>
-  );
-};
-
-// Gate Badge
-const GateBadge = ({ gate, active = false }) => {
-  const configs = {
-    1: { color: 'teal', label: 'Gate 1', subtitle: 'Tool Filter' },
-    2: { color: 'blue', label: 'Gate 2', subtitle: 'Execution Auth' },
-    3: { color: 'purple', label: 'Gate 3', subtitle: 'Response Mask' },
-  };
-  
-  const config = configs[gate];
-  const colorClasses = {
-    teal: active ? 'bg-teal-500 text-white' : 'bg-teal-100 text-teal-800',
-    blue: active ? 'bg-blue-500 text-white' : 'bg-blue-100 text-blue-800',
-    purple: active ? 'bg-purple-500 text-white' : 'bg-purple-100 text-purple-800',
-  };
-  
-  return (
-    <div className={`inline-flex items-center px-3 py-1.5 rounded-lg ${colorClasses[config.color]} transition-all duration-300`}>
-      <Shield size={14} className="mr-1.5" />
-      <span className="font-medium text-sm">{config.label}</span>
-    </div>
-  );
-};
-
-// NEW: Proxy Architecture Diagram Component
-const ProxyArchitectureDiagram = ({ activeGate = null }) => {
-  return (
-    <div className="bg-gradient-to-r from-slate-50 to-gray-50 rounded-xl border border-gray-200 p-6 mb-6">
-      <h4 className="text-sm font-semibold text-deep-teal uppercase tracking-wider mb-4 flex items-center">
-        <GitBranch size={16} className="mr-2 text-teal-500" />
-        PlainID Inline Proxy Architecture
-      </h4>
-      
-      <div className="flex items-center justify-between">
-        {/* MCP Client */}
-        <div className="flex flex-col items-center">
-          <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg">
-            <Bot size={28} />
-          </div>
-          <span className="text-xs font-medium text-gray-600 mt-2">MCP Client</span>
-          <span className="text-xs text-gray-400">(AI Agent)</span>
-        </div>
-        
-        {/* Arrow to PlainID */}
-        <div className="flex-1 flex items-center justify-center px-2">
-          <div className="h-0.5 flex-1 bg-gray-300" />
-          <ArrowRight size={16} className="text-gray-400 mx-1" />
-        </div>
-        
-        {/* PlainID Proxy */}
-        <div className="flex flex-col items-center relative">
-          <div className={`w-20 h-20 rounded-xl flex items-center justify-center text-white shadow-xl transition-all duration-300 ${
-            activeGate ? 'bg-gradient-to-br from-teal-500 to-teal-600 scale-110' : 'bg-gradient-to-br from-teal-600 to-teal-700'
-          }`}>
-            <Shield size={32} />
-          </div>
-          <span className="text-xs font-bold text-teal-700 mt-2">PlainID Proxy</span>
-          <span className="text-xs text-gray-400">(Authorization)</span>
-          
-          {/* Gate indicators */}
-          <div className="absolute -bottom-8 flex space-x-1">
-            <div className={`w-2 h-2 rounded-full transition-all ${activeGate === 1 ? 'bg-teal-500 scale-150' : 'bg-gray-300'}`} />
-            <div className={`w-2 h-2 rounded-full transition-all ${activeGate === 2 ? 'bg-blue-500 scale-150' : 'bg-gray-300'}`} />
-            <div className={`w-2 h-2 rounded-full transition-all ${activeGate === 3 ? 'bg-purple-500 scale-150' : 'bg-gray-300'}`} />
-          </div>
-        </div>
-        
-        {/* Arrow to MCP Server */}
-        <div className="flex-1 flex items-center justify-center px-2">
-          <ArrowRight size={16} className="text-gray-400 mx-1" />
-          <div className="h-0.5 flex-1 bg-gray-300" />
-        </div>
-        
-        {/* MCP Server */}
-        <div className="flex flex-col items-center">
-          <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center text-white shadow-lg">
-            <Server size={28} />
-          </div>
-          <span className="text-xs font-medium text-gray-600 mt-2">MCP Server</span>
-          <span className="text-xs text-gray-400">(Tools)</span>
-        </div>
-      </div>
-      
-      <p className="text-xs text-gray-500 text-center mt-8 italic">
-        PlainID intercepts all MCP JSON-RPC traffic — the agent only sees what policy permits
-      </p>
-    </div>
-  );
-};
-
-// Progress Steps
-const ProgressSteps = ({ currentStep, steps }) => {
-  return (
-    <div className="relative">
-      {/* Background track */}
-      <div className="absolute h-1 bg-gray-200 left-6 right-6 top-5 rounded-full" />
-      
-      {/* Progress bar */}
-      <div 
-        className="absolute h-1 bg-gradient-to-r from-teal-500 to-teal-600 rounded-full transition-all duration-500 ease-out"
-        style={{
-          top: '1.25rem',
-          left: '1.5rem',
-          width: currentStep === 0 ? '0' : `calc(${(currentStep / (steps.length - 1)) * 100}% - 3rem)`
-        }}
-      />
-      
-      {/* Step indicators */}
-      <div className="flex justify-between">
-        {steps.map((step, index) => {
-          const Icon = step.icon;
-          const isActive = currentStep === index;
-          const isCompleted = currentStep > index;
-          
-          return (
-            <div key={step.id} className="flex flex-col items-center relative z-10">
-              <div className={`
-                w-10 h-10 flex items-center justify-center rounded-full border-2 transition-all duration-300
-                ${isActive 
-                  ? 'bg-gradient-to-r from-teal-500 to-teal-600 text-white border-transparent shadow-lg scale-110' 
-                  : isCompleted 
-                    ? 'bg-teal-500 text-white border-transparent' 
-                    : 'bg-white text-gray-400 border-gray-200'
-                }
-              `}>
-                <Icon size={18} />
-              </div>
-              <span className={`
-                text-xs font-medium mt-2 transition-colors duration-300
-                ${isActive ? 'text-teal-600' : isCompleted ? 'text-teal-600' : 'text-gray-400'}
-              `}>
-                {step.name}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
-// Identity Panel
-const IdentityPanel = ({ role, agent: agentData }) => {
-  return (
-    <div className="bg-gradient-to-r from-misty-teal to-white rounded-xl border border-teal-100 p-6">
-      <h3 className="text-lg font-semibold text-deep-teal mb-4 flex items-center">
-        <Users size={20} className="mr-2 text-teal-500" />
-        The Identity
-      </h3>
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* End User */}
-        <div className="bg-white/80 rounded-lg p-4 border border-teal-100">
-          <div className="flex items-center mb-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white">
-              <User size={20} />
-            </div>
-            <div className="ml-3">
-              <div className="font-medium text-deep-teal">The End User</div>
-              <div className="text-xs text-gray-500">{role.name}</div>
-            </div>
-          </div>
-          
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Role:</span>
-              <span className="font-medium text-deep-teal">{role.name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Branch:</span>
-              <span className="font-medium text-deep-teal">{role.branch}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Employee ID:</span>
-              <span className="font-medium text-deep-teal">{role.employeeId}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Clearance:</span>
-              <span className={`font-medium capitalize ${
-                role.clearance === 'executive' ? 'text-green-600' :
-                role.clearance === 'elevated' ? 'text-blue-600' : 'text-gray-600'
-              }`}>
-                {role.clearance}
-              </span>
-            </div>
-          </div>
-          
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <div className="text-xs text-gray-500 mb-1">Access Level:</div>
-            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
-              role.access === 'Full Access' ? 'bg-green-100 text-green-800' :
-              role.access === 'Limited Access' ? 'bg-blue-100 text-blue-800' :
-              'bg-gray-100 text-gray-800'
-            }`}>
-              {role.access}
-            </span>
-          </div>
-        </div>
-        
-        {/* AI Agent */}
-        <div className="bg-white/80 rounded-lg p-4 border border-teal-100">
-          <div className="flex items-center mb-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-500 to-teal-600 flex items-center justify-center text-white">
-              <Bot size={20} />
-            </div>
-            <div className="ml-3">
-              <div className="font-medium text-deep-teal">The Agent User</div>
-              <div className="text-xs text-gray-500">{agentData.name}</div>
-            </div>
-          </div>
-          
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Agent:</span>
-              <span className="font-medium text-deep-teal">{agentData.name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Version:</span>
-              <span className="font-medium text-deep-teal">v{agentData.version}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Trust Level:</span>
-              <span className="font-medium text-deep-teal capitalize">{agentData.trustLevel}</span>
-            </div>
-          </div>
-          
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <div className="text-xs text-gray-500 mb-2">Agent Restrictions:</div>
-            <div className="space-y-1">
-              <div className="text-xs text-orange-700 flex items-center">
-                <AlertCircle size={10} className="mr-1" />
-                Loan approval &lt; ${agentData.restrictions.maxLoanApproval.toLocaleString()}
-              </div>
-              <div className="text-xs text-orange-700 flex items-center">
-                <AlertCircle size={10} className="mr-1" />
-                Cannot view full SSN
-              </div>
-              <div className="text-xs text-orange-700 flex items-center">
-                <AlertCircle size={10} className="mr-1" />
-                Transfers require confirmation
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <p className="mt-4 text-sm text-deep-teal/80 italic text-center">
-        "Effective access control in AI systems must account for both human and non-human (agent) identities"
-      </p>
-    </div>
-  );
-};
-
-// Scenario Selector
-const ScenarioSelector = ({ scenarios, selectedId, onSelect, disabled }) => {
-  return (
-    <div className="space-y-2">
-      {scenarios.map((scenario) => (
-        <button
-          key={scenario.id}
-          onClick={() => onSelect(scenario.id)}
-          disabled={disabled}
-          className={`
-            w-full text-left px-4 py-3 rounded-lg transition-all duration-200
-            ${selectedId === scenario.id
-              ? 'bg-gradient-to-r from-teal-500 to-teal-600 text-white shadow-md'
-              : 'bg-white border border-gray-200 text-gray-700 hover:border-teal-400 hover:bg-teal-50'
-            }
-            ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-          `}
-        >
-          <div className="font-medium text-sm">{scenario.name}</div>
-          <div className={`text-xs mt-1 ${selectedId === scenario.id ? 'text-teal-100' : 'text-gray-500'}`}>
-            {scenario.query}
-          </div>
-        </button>
-      ))}
-    </div>
-  );
-};
-
-// Role Selector
-const RoleSelector = ({ roles, selectedId, onSelect, disabled }) => {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {Object.values(roles).map((role) => (
+const RoleSelector = ({ selectedRole, onSelect }) => (
+  <div className="grid grid-cols-3 gap-2">
+    {Object.values(roles).map((role) => {
+      const isSelected = selectedRole === role.id;
+      return (
         <button
           key={role.id}
           onClick={() => onSelect(role.id)}
-          disabled={disabled}
-          className={`
-            px-4 py-2 rounded-lg transition-all duration-200 text-sm font-medium
-            ${selectedId === role.id
-              ? 'bg-gradient-to-r from-teal-500 to-teal-600 text-white shadow-md'
-              : 'bg-white border border-gray-200 text-gray-700 hover:border-teal-400 hover:bg-teal-50'
-            }
-            ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-          `}
+          className={`p-3 rounded-lg border-2 text-left transition-all ${
+            isSelected 
+              ? 'border-teal-500 bg-teal-50' 
+              : 'border-gray-200 hover:border-gray-300 bg-white'
+          }`}
         >
-          {role.name}
+          <div className="text-xl mb-1">{role.icon}</div>
+          <div className="font-medium text-gray-900 text-xs">{role.name}</div>
+          <div className="text-xs text-gray-500">{role.access}</div>
+          <div className="mt-1.5 text-xs">
+            <span className="text-teal-600 font-medium">{role.toolsVisible}</span>
+            <span className="text-gray-400">/{role.toolsTotal} tools</span>
+          </div>
         </button>
-      ))}
-    </div>
-  );
-};
+      );
+    })}
+  </div>
+);
 
-// CTA Modal
-const CTAModal = ({ isOpen, onClose }) => {
-  if (!isOpen) return null;
+const ScenarioDropdown = ({ scenarios, selectedId, onSelect }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const selected = scenarios.find(s => s.id === selectedId);
   
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100] animate-fadeIn">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full mx-4 animate-slideUp">
-        <div className="p-8">
-          <div className="flex items-center justify-center mb-6">
-            <div className="w-16 h-16 bg-gradient-to-r from-teal-500 to-teal-600 rounded-xl flex items-center justify-center shadow-lg">
-              <Shield size={32} className="text-white" />
-            </div>
-          </div>
-          
-          <h3 className="text-2xl font-bold text-center text-deep-teal mb-4">
-            Ready to Secure Your MCP Agents?
-          </h3>
-          
-          <p className="text-center text-gray-600 mb-8">
-            See how PlainID can protect your AI applications with dynamic authorization for MCP in just 30 minutes.
-          </p>
-          
-          <div className="space-y-3">
-            <button 
-              onClick={() => {
-                window.open('https://www.plainid.com/contact/', '_blank');
-                onClose();
-              }}
-              className="w-full flex items-center justify-center space-x-2 px-6 py-3 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg hover:shadow-lg transition-all"
-            >
-              <Calendar size={18} />
-              <span>Schedule a Walkthrough</span>
-            </button>
-            
-            <button 
-              onClick={() => {
-                window.open('https://go.plainid.com/hubfs/Ebooks%20and%20Whitepapers%20and%20Reports/AI%20Whitpaper%20-%20Enhancing%20Data%20Security%20with%20Dynamic%20Authorization%20A%20Guide%20to%20Mitigating%20Vulnerabilities%20in%20LLMs.pdf', '_blank');
-                onClose();
-              }}
-              className="w-full flex items-center justify-center space-x-2 px-6 py-3 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all"
-            >
-              <Download size={18} />
-              <span>Download AI Security Whitepaper</span>
-            </button>
-            
-            <button
-              onClick={onClose}
-              className="w-full text-center text-sm text-gray-500 hover:text-gray-700 transition-colors py-2"
-            >
-              Continue Exploring
-            </button>
-          </div>
+    <div className="relative">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-lg text-left flex items-center justify-between hover:border-gray-300 transition-colors"
+      >
+        <div>
+          <div className="font-medium text-gray-900 text-sm">{selected?.name}</div>
+          <div className="text-xs text-gray-500">{selected?.description}</div>
         </div>
-      </div>
-    </div>
-  );
-};
-
-// Audit Log
-const AuditLog = ({ entries }) => {
-  if (!entries || entries.length === 0) return null;
-  
-  return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 mt-6">
-      <h4 className="text-lg font-semibold text-deep-teal mb-4 flex items-center">
-        <Activity size={20} className="mr-2 text-teal-500" />
-        Authorization Audit Log
-      </h4>
+        <ChevronDown size={18} className={`text-gray-400 transition-transform flex-shrink-0 ml-2 ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
       
-      <div className="bg-gray-50 rounded-lg p-4 max-h-64 overflow-auto">
-        <div className="space-y-2 font-mono text-xs">
-          {entries.map((entry, index) => (
-            <div key={index} className="flex items-start">
-              <span className="text-gray-400 w-28 flex-shrink-0">
-                {entry.timestamp?.split('T')[1]?.split('.')[0] || '00:00:00'}
-              </span>
-              <span className={`w-24 flex-shrink-0 font-medium ${
-                entry.event?.includes('PERMIT') || entry.event?.includes('SUCCESS') ? 'text-green-600' :
-                entry.event?.includes('DENY') ? 'text-red-600' :
-                entry.event?.includes('MASK') || entry.event?.includes('FILTER') ? 'text-purple-600' :
-                'text-blue-600'
-              }`}>
-                {entry.event}
-              </span>
-              <span className="text-gray-700">{entry.details}</span>
-            </div>
+      {isOpen && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 overflow-hidden">
+          {scenarios.map((scenario) => (
+            <button
+              key={scenario.id}
+              onClick={() => { onSelect(scenario.id); setIsOpen(false); }}
+              className={`w-full px-3 py-2.5 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0 ${
+                selectedId === scenario.id ? 'bg-teal-50' : ''
+              }`}
+            >
+              <div className="font-medium text-gray-900 text-sm">{scenario.name}</div>
+              <div className="text-xs text-gray-500">{scenario.description}</div>
+            </button>
           ))}
         </div>
-      </div>
+      )}
     </div>
   );
 };
 
-// Key Takeaways
-const KeyTakeaways = () => {
-  const takeaways = [
-    {
-      title: "Don't wait, act now",
-      description: "Utilize MCP securely from day one, it's not an option."
-    },
-    {
-      title: "Beyond Authentication",
-      description: "Authorizations are critical, implement dynamic, policy-driven controls to ensure security and compliance."
-    },
-    {
-      title: "Identity First",
-      description: "Treat AI Agents as delegated identities, context and risk matters. Use dynamic policy to govern the AI flow."
-    }
-  ];
+const SIMPLE_STEPS = [
+  { id: 'start', name: '', icon: Play, hidden: true },
+  { id: 'request', name: 'Request', icon: User },
+  { id: 'auth', name: 'Auth', icon: Lock },
+  { id: 'authorize', name: 'Authorize', icon: Shield },
+  { id: 'execute', name: 'Execute', icon: Zap },
+  { id: 'respond', name: 'Respond', icon: Check },
+];
+
+const SimplePipeline = ({ currentStep, outcome, onStepClick, maxReachedStep }) => {
+  const getStepStatus = (index) => {
+    if (currentStep > index) return 'complete';
+    if (currentStep === index) return 'active';
+    return 'pending';
+  };
+  
+  const isClickable = (index) => {
+    return index <= maxReachedStep && index > 0;
+  };
+  
+  // Filter out the hidden start step for display
+  const visibleSteps = SIMPLE_STEPS.filter(step => !step.hidden);
   
   return (
-    <div className="bg-gradient-to-r from-deep-teal to-slate text-white rounded-xl p-8 mt-8">
-      <h3 className="text-2xl font-bold mb-6 text-center">Key Takeaways</h3>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {takeaways.map((item, index) => (
-          <div key={index} className="bg-white/10 rounded-lg p-5">
-            <div className="flex items-center mb-3">
-              <Check size={20} className="text-neon-green mr-2" />
-              <h4 className="font-semibold">{item.title}</h4>
+    <div className="flex items-center justify-between">
+      {visibleSteps.map((step) => {
+        // Get the actual index from the full array
+        const actualIndex = SIMPLE_STEPS.findIndex(s => s.id === step.id);
+        const status = getStepStatus(actualIndex);
+        const Icon = step.icon;
+        const isDenied = status === 'active' && step.id === 'authorize' && outcome && !outcome.allowed;
+        const clickable = isClickable(actualIndex);
+        
+        return (
+          <React.Fragment key={step.id}>
+            <div className="flex flex-col items-center">
+              <button
+                onClick={() => clickable && onStepClick && onStepClick(actualIndex)}
+                disabled={!clickable}
+                className={`
+                  w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300
+                  ${status === 'complete' ? 'bg-teal-500 text-white' : ''}
+                  ${status === 'active' && !isDenied ? 'bg-teal-500 text-white ring-4 ring-teal-100 scale-110' : ''}
+                  ${status === 'active' && isDenied ? 'bg-red-500 text-white ring-4 ring-red-100 scale-110' : ''}
+                  ${status === 'pending' ? 'bg-gray-100 text-gray-400' : ''}
+                  ${clickable ? 'cursor-pointer hover:opacity-80' : ''}
+                `}
+              >
+                {status === 'complete' ? <Check size={18} /> : isDenied ? <X size={18} /> : <Icon size={18} />}
+              </button>
+              <span className={`text-xs mt-1.5 ${status === 'pending' ? 'text-gray-400' : 'text-gray-700'}`}>
+                {step.name}
+              </span>
             </div>
-            <p className="text-sm text-gray-300">{item.description}</p>
+            
+            {visibleSteps.indexOf(step) < visibleSteps.length - 1 && (
+              <div className={`flex-1 h-0.5 mx-1.5 rounded-full transition-all duration-300 ${
+                status === 'complete' ? 'bg-teal-500' : 'bg-gray-200'
+              }`} />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+};
+
+const StepContent = ({ step, role, scenario, outcome, showTechnical }) => {
+  if (step === 0) {
+    return (
+      <div className="text-center py-6 text-gray-500">
+        <Sparkles size={28} className="mx-auto mb-2 text-teal-400" />
+        <p className="text-sm">Click "Run" to see PlainID in action</p>
+      </div>
+    );
+  }
+  
+  if (step === 1) {
+    return (
+      <div className="bg-blue-50 rounded-lg p-4">
+        <div className="flex items-start">
+          <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white mr-3 flex-shrink-0">
+            <User size={16} />
+          </div>
+          <div>
+            <h4 className="font-medium text-gray-900 text-sm mb-1">User Request</h4>
+            <p className="text-gray-700 text-sm">"{scenario.name}"</p>
+            <div className="mt-2 flex items-center text-xs text-gray-500">
+              <span className="mr-3">Role: <strong className="text-gray-700">{roles[role].name}</strong></span>
+              <span>Tool: <strong className="text-gray-700 font-mono">{scenario.tool}</strong></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  if (step === 2) {
+    return (
+      <div className="bg-amber-50 rounded-lg p-4">
+        <div className="flex items-start">
+          <div className="w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center text-white mr-3 flex-shrink-0">
+            <Lock size={16} />
+          </div>
+          <div className="flex-1">
+            <h4 className="font-medium text-gray-900 text-sm mb-1">OAuth 2.1 Authentication</h4>
+            <div className="flex items-center">
+              <CheckCircle size={14} className="text-green-500 mr-1.5" />
+              <span className="text-sm text-green-700">Authentication successful</span>
+            </div>
+            {showTechnical && (
+              <div className="mt-2 bg-white/70 rounded p-2 text-xs font-mono text-gray-600">
+                token_type: "Bearer" | user_id: "{roles[role].id}"
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  if (step === 3) {
+    const roleData = roles[role];
+    return (
+      <div className={`rounded-lg p-4 ${outcome.allowed ? 'bg-teal-50' : 'bg-red-50'}`}>
+        <div className="flex items-start">
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white mr-3 flex-shrink-0 ${
+            outcome.allowed ? 'bg-teal-500' : 'bg-red-500'
+          }`}>
+            <Shield size={16} />
+          </div>
+          <div className="flex-1">
+            <h4 className="font-medium text-gray-900 text-sm mb-2">PlainID Authorization</h4>
+            
+            <div className="grid grid-cols-3 gap-2 mb-3">
+              <div className={`rounded p-2 ${
+                outcome.reason === 'Tool not available' || outcome.reason === 'Tool hidden' 
+                  ? 'bg-red-100 border border-red-200' 
+                  : 'bg-white border border-teal-200'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-600">Filter</span>
+                  {outcome.reason === 'Tool not available' || outcome.reason === 'Tool hidden' 
+                    ? <XCircle size={12} className="text-red-500" />
+                    : <CheckCircle size={12} className="text-teal-500" />
+                  }
+                </div>
+              </div>
+              <div className={`rounded p-2 ${
+                !outcome.allowed && outcome.reason !== 'Tool not available' && outcome.reason !== 'Tool hidden'
+                  ? 'bg-red-100 border border-red-200' 
+                  : 'bg-white border border-blue-200'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-600">Exec</span>
+                  {!outcome.allowed && outcome.reason !== 'Tool not available' && outcome.reason !== 'Tool hidden'
+                    ? <XCircle size={12} className="text-red-500" />
+                    : <CheckCircle size={12} className="text-blue-500" />
+                  }
+                </div>
+              </div>
+              <div className={`rounded p-2 bg-white border ${outcome.masked?.length > 0 ? 'border-purple-200' : 'border-gray-200'}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-600">Mask</span>
+                  {outcome.masked?.length > 0 
+                    ? <Eye size={12} className="text-purple-500" />
+                    : <span className="text-xs text-gray-400">—</span>
+                  }
+                </div>
+              </div>
+            </div>
+            
+            <div className={`flex items-center p-2 rounded ${outcome.allowed ? 'bg-teal-100' : 'bg-red-100'}`}>
+              {outcome.allowed ? (
+                <>
+                  <CheckCircle size={14} className="text-teal-600 mr-1.5" />
+                  <span className="text-xs text-teal-800">Authorized — Request forwarded to MCP server</span>
+                </>
+              ) : (
+                <>
+                  <XCircle size={14} className="text-red-600 mr-1.5" />
+                  <span className="text-xs text-red-800">Denied — {outcome.reason}</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  if (step === 4) {
+    if (!outcome.allowed) {
+      return (
+        <div className="bg-gray-100 rounded-lg p-4 text-center">
+          <X size={24} className="mx-auto mb-2 text-gray-400" />
+          <p className="text-sm text-gray-600">Request blocked by PlainID proxy</p>
+          <p className="text-xs text-gray-500 mt-1">MCP server was never called</p>
+        </div>
+      );
+    }
+    return (
+      <div className="bg-green-50 rounded-lg p-4">
+        <div className="flex items-start">
+          <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white mr-3 flex-shrink-0">
+            <Zap size={16} />
+          </div>
+          <div>
+            <h4 className="font-medium text-gray-900 text-sm mb-1">MCP Server Execution</h4>
+            <div className="flex items-center">
+              <CheckCircle size={14} className="text-green-500 mr-1.5" />
+              <span className="text-sm text-green-700">Tool executed successfully</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  if (step === 5) {
+    if (!outcome.allowed) {
+      return (
+        <div className="bg-red-50 rounded-lg p-4">
+          <div className="flex items-start">
+            <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center text-white mr-3 flex-shrink-0">
+              <X size={16} />
+            </div>
+            <div>
+              <h4 className="font-medium text-gray-900 text-sm mb-1">Request Denied</h4>
+              <p className="text-sm text-gray-600">{outcome.reason}</p>
+              <p className="text-xs text-gray-500 mt-2">No sensitive data was exposed.</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="bg-gradient-to-r from-teal-50 to-green-50 rounded-lg p-4">
+        <div className="flex items-start">
+          <div className="w-8 h-8 bg-gradient-to-br from-teal-500 to-green-500 rounded-full flex items-center justify-center text-white mr-3 flex-shrink-0">
+            <Check size={16} />
+          </div>
+          <div className="flex-1">
+            <h4 className="font-medium text-gray-900 text-sm mb-1">Response Delivered</h4>
+            
+            {outcome.masked?.length > 0 && (
+              <div className="flex items-center mb-2">
+                <EyeOff size={14} className="text-purple-500 mr-1.5" />
+                <span className="text-xs text-purple-700">Masked: {outcome.masked.join(', ')}</span>
+              </div>
+            )}
+            
+            {showTechnical && (
+              <div className="bg-gray-900 rounded p-2 text-xs font-mono text-gray-100 mt-2">
+                <div>customer_name: "John Smith"</div>
+                {outcome.masked?.includes('SSN') && (
+                  <div className="text-purple-400">ssn: "XXX-XX-6789"</div>
+                )}
+              </div>
+            )}
+            
+            <div className="flex items-center mt-2 p-1.5 bg-teal-100 rounded">
+              <CheckCircle size={12} className="text-teal-600 mr-1" />
+              <span className="text-xs text-teal-800">Zero data leakage — Policy enforced</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  return null;
+};
+
+// ============================================================================
+// MAIN VIEWS
+// ============================================================================
+
+const SimulationView = () => {
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [showSimulation, setShowSimulation] = useState(false);
+  const [selectedRole, setSelectedRole] = useState('teller');
+  const [selectedScenario, setSelectedScenario] = useState('account_lookup');
+  const [currentStep, setCurrentStep] = useState(0);
+  const [maxReachedStep, setMaxReachedStep] = useState(0);
+  const [isRunning, setIsRunning] = useState(false);
+  const [showTechnical, setShowTechnical] = useState(false);
+  
+  const scenario = scenarios.find(s => s.id === selectedScenario);
+  const outcome = scenario?.outcomes[selectedRole];
+  
+  useEffect(() => {
+    if (!isRunning || currentStep === 0 || currentStep >= 5) return;
+    
+    // Slower durations for human readability
+    const durations = [0, 3000, 3500, 4000, 3000, 0];
+    const timer = setTimeout(() => {
+      const nextStep = currentStep + 1;
+      
+      if (currentStep === 3 && !outcome?.allowed) {
+        setCurrentStep(5);
+        setMaxReachedStep(5);
+        setIsRunning(false);
+        return;
+      }
+      
+      if (nextStep <= 5) {
+        setCurrentStep(nextStep);
+        setMaxReachedStep(prev => Math.max(prev, nextStep));
+        if (nextStep === 5) setIsRunning(false);
+      }
+    }, durations[currentStep]);
+    
+    return () => clearTimeout(timer);
+  }, [currentStep, isRunning, outcome]);
+  
+  const startSimulation = () => { 
+    setCurrentStep(1); 
+    setMaxReachedStep(1);
+    setIsRunning(true); 
+  };
+  const resetSimulation = () => { 
+    setCurrentStep(0); 
+    setMaxReachedStep(0);
+    setIsRunning(false); 
+  };
+  
+  const handleStepClick = (stepIndex) => {
+    if (stepIndex <= maxReachedStep && stepIndex > 0) {
+      setCurrentStep(stepIndex);
+      setIsRunning(false);
+    }
+  };
+  
+  const handleStartFromHero = () => {
+    setShowSimulation(true);
+    setTimeout(() => document.getElementById('simulation')?.scrollIntoView({ behavior: 'smooth' }), 100);
+  };
+  
+  return (
+    <>
+      <HeroSection onStartSimulation={handleStartFromHero} />
+      <HowItWorks isExpanded={showHowItWorks} onToggle={() => setShowHowItWorks(!showHowItWorks)} />
+      
+      {showSimulation && (
+        <section className="py-8 bg-white" id="simulation">
+          <div className="max-w-3xl mx-auto px-4">
+            <div className="text-center mb-6">
+              <h2 className="text-xl font-bold text-gray-900 mb-1">Interactive Simulation</h2>
+              <p className="text-sm text-gray-600">See how PlainID protects your MCP agents</p>
+            </div>
+            
+            <div className="bg-slate-50 rounded-xl p-4 mb-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-2">Select User Role</label>
+                  <RoleSelector selectedRole={selectedRole} onSelect={(id) => { setSelectedRole(id); resetSimulation(); }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-2">Select Scenario</label>
+                  <ScenarioDropdown 
+                    scenarios={scenarios}
+                    selectedId={selectedScenario}
+                    onSelect={(id) => { setSelectedScenario(id); resetSimulation(); }}
+                  />
+                  <div className={`mt-2 px-2 py-1.5 rounded text-xs ${
+                    outcome?.allowed ? 'bg-teal-50 text-teal-700' : 'bg-red-50 text-red-700'
+                  }`}>
+                    Expected: {outcome?.allowed ? '✓ Allowed' : `✗ ${outcome?.reason}`}
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-medium text-gray-900 text-sm">Authorization Flow</h3>
+                <div className="flex items-center space-x-2">
+                  <label className="flex items-center text-xs text-gray-600 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={showTechnical}
+                      onChange={(e) => setShowTechnical(e.target.checked)}
+                      className="mr-1.5 rounded border-gray-300 text-teal-500 focus:ring-teal-500"
+                    />
+                    Technical
+                  </label>
+                  
+                  {currentStep === 0 ? (
+                    <button onClick={startSimulation} className="flex items-center px-3 py-1.5 bg-teal-500 text-white text-xs font-medium rounded-lg hover:bg-teal-600">
+                      <Play size={14} className="mr-1" /> Run
+                    </button>
+                  ) : (
+                    <button onClick={resetSimulation} className="flex items-center px-3 py-1.5 bg-gray-100 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-200">
+                      <RotateCcw size={14} className="mr-1" /> Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+              
+              <div className="mb-5">
+                <SimplePipeline 
+                  currentStep={currentStep} 
+                  outcome={outcome} 
+                  onStepClick={handleStepClick}
+                  maxReachedStep={maxReachedStep}
+                />
+              </div>
+              
+              <div className="min-h-[140px]">
+                <StepContent step={currentStep} role={selectedRole} scenario={scenario} outcome={outcome} showTechnical={showTechnical} />
+              </div>
+              
+              {isRunning && currentStep > 0 && currentStep < 5 && (
+                <div className="flex items-center justify-center mt-3 text-teal-600">
+                  <div className="flex space-x-1 mr-2">
+                    <span className="w-1.5 h-1.5 bg-teal-500 rounded-full animate-bounce" />
+                    <span className="w-1.5 h-1.5 bg-teal-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                    <span className="w-1.5 h-1.5 bg-teal-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                  </div>
+                  <span className="text-xs">Processing...</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+    </>
+  );
+};
+
+const CompareView = ({ selectedRole, selectedScenario, onRoleChange, onScenarioChange }) => {
+  const scenario = scenarios.find(s => s.id === selectedScenario);
+  const outcome = scenario?.outcomes[selectedRole];
+  const roleData = roles[selectedRole];
+  
+  return (
+    <section className="py-8 bg-slate-50 min-h-[calc(100vh-60px)]">
+      <div className="max-w-6xl mx-auto px-4">
+        <div className="text-center mb-6">
+          <h2 className="text-xl font-bold text-gray-900 mb-1">Compare Approaches</h2>
+          <p className="text-sm text-gray-600">See the difference PlainID makes for the same request</p>
+        </div>
+        
+        {/* Configuration */}
+        <div className="bg-white rounded-xl p-4 mb-6 border border-gray-200">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2">User Role</label>
+              <RoleSelector selectedRole={selectedRole} onSelect={onRoleChange} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-2">Scenario</label>
+              <ScenarioDropdown 
+                scenarios={scenarios}
+                selectedId={selectedScenario}
+                onSelect={onScenarioChange}
+              />
+            </div>
+          </div>
+        </div>
+        
+        {/* Side by side comparison */}
+        <div style={{ display: 'flex', flexDirection: 'row', gap: '1.5rem' }}>
+          {/* Without PlainID */}
+          <div style={{ flex: 1 }} className="bg-white rounded-xl border-2 border-red-100 p-6 shadow-sm">
+            <div className="flex items-center mb-5">
+              <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center mr-3">
+                <Unlock className="text-red-500" size={20} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">Without PlainID</h3>
+                <p className="text-xs text-gray-500">Standard MCP</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs font-medium text-gray-600 mb-1.5">Request</div>
+                <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-700">
+                  "{scenario?.name}"
+                </div>
+              </div>
+              
+              <div>
+                <div className="text-xs font-medium text-gray-600 mb-1.5">Tool Discovery</div>
+                <div className="bg-red-50 p-3 rounded-lg border border-red-200">
+                  <div className="flex items-center text-red-700 text-sm mb-1">
+                    <X size={14} className="mr-1.5" />
+                    All 12 tools exposed
+                  </div>
+                  <p className="text-xs text-red-600">No filtering — agent sees everything</p>
+                </div>
+              </div>
+              
+              <div>
+                <div className="text-xs font-medium text-gray-600 mb-1.5">Execution</div>
+                <div className="bg-red-50 p-3 rounded-lg border border-red-200">
+                  <div className="flex items-center text-red-700 text-sm mb-1">
+                    <X size={14} className="mr-1.5" />
+                    No authorization checks
+                  </div>
+                  <p className="text-xs text-red-600">Any tool, any parameters accepted</p>
+                </div>
+              </div>
+              
+              <div>
+                <div className="text-xs font-medium text-gray-600 mb-1.5">Response</div>
+                <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                  <div className="bg-white rounded p-3 font-mono text-xs text-gray-700 mb-2">
+                    <div>customer_name: "John Smith"</div>
+                    <div className="text-red-600">ssn: "123-45-6789"</div>
+                    <div className="text-red-600">account_number: "9876543210"</div>
+                  </div>
+                  <div className="flex items-center text-red-700 text-xs">
+                    <AlertTriangle size={12} className="mr-1" />
+                    SSN and account number exposed!
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* With PlainID */}
+          <div style={{ flex: 1 }} className="bg-white rounded-xl border-2 border-teal-200 p-6 shadow-lg">
+            <div className="flex items-center mb-5">
+              <div className="w-10 h-10 bg-teal-100 rounded-full flex items-center justify-center mr-3">
+                <Shield className="text-teal-600" size={20} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-900">With PlainID</h3>
+                <p className="text-xs text-gray-500">Authorization Proxy</p>
+              </div>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs font-medium text-gray-600 mb-1.5">Request</div>
+                <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-700">
+                  "{scenario?.name}"
+                </div>
+              </div>
+              
+              <div>
+                <div className="text-xs font-medium text-gray-600 mb-1.5">Gate 1: Tool Discovery</div>
+                <div className={`p-3 rounded-lg border ${
+                  outcome?.reason === 'Tool not available' || outcome?.reason === 'Tool hidden'
+                    ? 'bg-red-50 border-red-200'
+                    : 'bg-teal-50 border-teal-200'
+                }`}>
+                  <div className={`flex items-center text-sm mb-1 ${
+                    outcome?.reason === 'Tool not available' || outcome?.reason === 'Tool hidden'
+                      ? 'text-red-700'
+                      : 'text-teal-700'
+                  }`}>
+                    {outcome?.reason === 'Tool not available' || outcome?.reason === 'Tool hidden'
+                      ? <><X size={14} className="mr-1.5" />Tool hidden from agent</>
+                      : <><Check size={14} className="mr-1.5" />{roleData.toolsVisible} of {roleData.toolsTotal} tools visible</>
+                    }
+                  </div>
+                  <p className="text-xs text-gray-600">
+                    {outcome?.reason === 'Tool hidden' 
+                      ? 'Admin tools completely invisible'
+                      : `Filtered by role: ${roleData.name}`
+                    }
+                  </p>
+                </div>
+              </div>
+              
+              <div>
+                <div className="text-xs font-medium text-gray-600 mb-1.5">Gate 2: Execution Auth</div>
+                <div className={`p-3 rounded-lg border ${
+                  !outcome?.allowed && outcome?.reason !== 'Tool not available' && outcome?.reason !== 'Tool hidden'
+                    ? 'bg-red-50 border-red-200'
+                    : outcome?.reason === 'Tool not available' || outcome?.reason === 'Tool hidden'
+                      ? 'bg-gray-50 border-gray-200'
+                      : 'bg-blue-50 border-blue-200'
+                }`}>
+                  <div className={`flex items-center text-sm mb-1 ${
+                    !outcome?.allowed && outcome?.reason !== 'Tool not available' && outcome?.reason !== 'Tool hidden'
+                      ? 'text-red-700'
+                      : outcome?.reason === 'Tool not available' || outcome?.reason === 'Tool hidden'
+                        ? 'text-gray-500'
+                        : 'text-blue-700'
+                  }`}>
+                    {!outcome?.allowed && outcome?.reason !== 'Tool not available' && outcome?.reason !== 'Tool hidden'
+                      ? <><X size={14} className="mr-1.5" />{outcome?.reason}</>
+                      : outcome?.reason === 'Tool not available' || outcome?.reason === 'Tool hidden'
+                        ? <><span className="mr-1.5">—</span>Skipped (tool not visible)</>
+                        : <><Check size={14} className="mr-1.5" />Parameters validated</>
+                    }
+                  </div>
+                  <p className="text-xs text-gray-600">
+                    {outcome?.allowed ? 'Scope and limits checked' : 'Request blocked by policy'}
+                  </p>
+                </div>
+              </div>
+              
+              <div>
+                <div className="text-xs font-medium text-gray-600 mb-1.5">Gate 3: Response</div>
+                <div className={`p-3 rounded-lg border ${
+                  outcome?.allowed ? 'bg-purple-50 border-purple-200' : 'bg-gray-50 border-gray-200'
+                }`}>
+                  {outcome?.allowed ? (
+                    <>
+                      <div className="bg-white rounded p-2 font-mono text-xs text-gray-700 mb-2">
+                        <div>customer_name: "John Smith"</div>
+                        {outcome?.masked?.includes('SSN') && (
+                          <div className="text-purple-600">ssn: "XXX-XX-6789"</div>
+                        )}
+                      </div>
+                      <div className="flex items-center text-purple-700 text-xs">
+                        <Shield size={12} className="mr-1" />
+                        {outcome?.masked?.length > 0 
+                          ? `${outcome.masked.join(', ')} masked by policy`
+                          : 'Response validated'
+                        }
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center text-gray-500 text-sm mb-1">
+                        <span className="mr-1.5">—</span>No response (blocked)
+                      </div>
+                      <p className="text-xs text-gray-600">No data exposed to agent</p>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const IncidentsView = () => (
+  <section className="py-8 bg-slate-50 min-h-[calc(100vh-60px)]">
+    <div className="max-w-5xl mx-auto px-4">
+      <div className="text-center mb-8">
+        <h2 className="text-xl font-bold text-gray-900 mb-1">Security Incident Prevention</h2>
+        <p className="text-sm text-gray-600">See how PlainID prevents real-world MCP security incidents</p>
+      </div>
+      
+      <div className="grid md:grid-cols-3 gap-5">
+        {incidents.map((incident) => (
+          <div key={incident.id} className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow">
+            <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium mb-3 ${
+              incident.severity === 'critical' ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800'
+            }`}>
+              <AlertTriangle size={12} className="mr-1" />
+              {incident.severity.toUpperCase()}
+            </div>
+            
+            <h3 className="font-semibold text-gray-900 mb-1">{incident.name}</h3>
+            <p className="text-xs text-gray-500 mb-3">{incident.company} • {incident.date}</p>
+            <p className="text-sm text-gray-600 mb-4">{incident.description}</p>
+            
+            {incident.cve && (
+              <div className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-1 rounded mb-3 inline-block">
+                {incident.cve}
+              </div>
+            )}
+            
+            <div className="space-y-3">
+              <div className="bg-red-50 p-3 rounded-lg border border-red-100">
+                <div className="text-xs font-medium text-red-800 mb-1 flex items-center">
+                  <Unlock size={12} className="mr-1" />
+                  Without PlainID
+                </div>
+                <p className="text-xs text-red-700">{incident.without_plainid.outcome}</p>
+              </div>
+              
+              <div className="bg-teal-50 p-3 rounded-lg border border-teal-100">
+                <div className="text-xs font-medium text-teal-800 mb-1 flex items-center">
+                  <Shield size={12} className="mr-1" />
+                  With PlainID
+                </div>
+                <p className="text-xs text-teal-700">{incident.with_plainid.outcome}</p>
+              </div>
+            </div>
           </div>
         ))}
       </div>
     </div>
-  );
-};
+  </section>
+);
+
+const Footer = () => (
+  <footer className="bg-gray-900 text-gray-400 py-6">
+    <div className="max-w-3xl mx-auto px-4 text-center">
+      <div className="flex items-center justify-center mb-2">
+        <Shield size={16} className="text-teal-500 mr-1.5" />
+        <span className="text-white font-medium text-sm">PlainID MCP Authorizer</span>
+        <AlphaTag />
+      </div>
+      <p className="text-xs">
+        Made by the{' '}
+        <a href="mailto:presales@plainid.com" className="text-teal-400 hover:underline">SE Team</a>
+        {' '}for walkthrough purposes
+      </p>
+    </div>
+  </footer>
+);
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
-export default function PlainIDMCPAuthorizerDemo() {
-  // State
+export default function MCPAuthorizerWalkthrough() {
+  const [activeView, setActiveView] = useState('simulation');
   const [selectedRole, setSelectedRole] = useState('teller');
-  const [selectedScenario, setSelectedScenario] = useState('account_lookup_success');
-  const [currentStep, setCurrentStep] = useState(0);
-  const [isRunning, setIsRunning] = useState(false);
-  const [showComparison, setShowComparison] = useState(false);
-  const [showCTAModal, setShowCTAModal] = useState(false);
-  const [showIncidents, setShowIncidents] = useState(false);
-  const [auditLog, setAuditLog] = useState([]);
+  const [selectedScenario, setSelectedScenario] = useState('account_lookup');
   
-  // Computed values
-  const role = getRoleById(selectedRole);
-  const scenario = getScenarioById(selectedScenario);
-  const outcome = scenario?.expectedOutcomes[selectedRole];
-  
-  // Gate evaluation results (computed when pipeline runs)
-  const [gate1Result, setGate1Result] = useState(null);
-  const [gate2Result, setGate2Result] = useState(null);
-  const [gate3Result, setGate3Result] = useState(null);
-  
-  // Determine which gate is active based on current step
-  const getActiveGate = () => {
-    if (currentStep === 3) return 1;
-    if (currentStep === 5) return 2;
-    if (currentStep === 7) return 3;
-    return null;
-  };
-  
-  // Add audit entry
-  const addAuditEntry = useCallback((event, details) => {
-    setAuditLog(prev => [...prev, {
-      timestamp: generateTimestamp(),
-      event,
-      details
-    }]);
-  }, []);
-  
-  // Start pipeline
-  const startPipeline = useCallback(() => {
-    setCurrentStep(1);
-    setIsRunning(true);
-    setAuditLog([]);
-    setGate1Result(null);
-    setGate2Result(null);
-    setGate3Result(null);
-    
-    addAuditEntry('USER_REQUEST', `"${scenario.query}"`);
-  }, [scenario, addAuditEntry]);
-  
-  // Reset pipeline
-  const resetPipeline = useCallback(() => {
-    setCurrentStep(0);
-    setIsRunning(false);
-    setAuditLog([]);
-    setGate1Result(null);
-    setGate2Result(null);
-    setGate3Result(null);
-  }, []);
-  
-  // Auto-advance through pipeline
-  useEffect(() => {
-    if (!isRunning || currentStep === 0 || currentStep >= PIPELINE_STEPS.length - 1) {
-      return;
-    }
-    
-    const duration = STEP_DURATIONS[currentStep];
-    
-    const timer = setTimeout(() => {
-      const nextStep = currentStep + 1;
-      
-      // Execute gate logic at appropriate steps
-      if (nextStep === 3) {
-        // Gate 1: Tool Discovery
-        const result = evaluateGate1(selectedRole);
-        setGate1Result(result);
-        addAuditEntry('GATE_1_EVAL', `Policy: role-based-tool-access`);
-        addAuditEntry(
-          outcome.gate1 === 'permit' ? 'GATE_1_PERMIT' : 'GATE_1_DENY',
-          `${result.filteredCount}/${result.originalCount} tools available`
-        );
-      }
-      
-      if (nextStep === 5) {
-        // Gate 2: Execution Authorization
-        const result = evaluateGate2(selectedRole, scenario.tool, scenario.params);
-        setGate2Result(result);
-        addAuditEntry('GATE_2_EVAL', `Tool: ${scenario.tool}`);
-        addAuditEntry(
-          result.decision === 'PERMIT' ? 'GATE_2_PERMIT' : 'GATE_2_DENY',
-          result.reason
-        );
-      }
-      
-      if (nextStep === 7 && outcome.gate2 !== 'deny') {
-        // Gate 3: Response Masking
-        const result = evaluateGate3(selectedRole, outcome.response || {});
-        setGate3Result(result);
-        addAuditEntry('GATE_3_EVAL', `Policy: pii-masking`);
-        addAuditEntry(
-          result.decision === 'MASK' ? 'GATE_3_MASK' : 'GATE_3_PASS',
-          result.maskedFields.length > 0 
-            ? `${result.maskedFields.length} fields masked` 
-            : 'No masking required'
-        );
-      }
-      
-      if (nextStep === PIPELINE_STEPS.length - 1) {
-        setIsRunning(false);
-        addAuditEntry('COMPLETE', outcome.finalResult === 'success' ? 'Request fulfilled' : 'Request denied');
-        
-        // Show CTA modal after completion
-        setTimeout(() => setShowCTAModal(true), 2000);
-      }
-      
-      setCurrentStep(nextStep);
-    }, duration);
-    
-    return () => clearTimeout(timer);
-  }, [currentStep, isRunning, selectedRole, scenario, outcome, addAuditEntry]);
-  
-  // Skip to next step
-  const skipToNext = () => {
-    if (currentStep < PIPELINE_STEPS.length - 1) {
-      setCurrentStep(currentStep + 1);
-    }
-  };
-
-  // Render step content
-  const renderStepContent = () => {
-    switch (currentStep) {
-      case 0:
-        return (
-          <div className="text-center py-12">
-            <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-teal-500 to-teal-600 rounded-2xl mb-6 shadow-xl">
-              <Shield size={40} className="text-white" />
-            </div>
-            <h2 className="text-3xl font-bold text-deep-teal mb-4">
-              Dynamic Authorization for MCP-Powered Agents
-            </h2>
-            <p className="text-xl text-gray-600 mb-4">
-              Zero-Trust Policy-Based Access Control for the Modern Enterprise
-            </p>
-            
-            {/* NEW: Architecture callout */}
-            <div className="flex justify-center mb-6">
-              <ArchitectureBadge />
-            </div>
-            
-            <p className="text-gray-500 mb-8 max-w-2xl mx-auto">
-              PlainID operates as an <strong>inline proxy</strong> between MCP clients and servers, 
-              intercepting JSON-RPC traffic to enforce authorization at three critical points. 
-              The AI agent never sees tools or data that policy denies.
-            </p>
-          </div>
-        );
-        
-      case 1:
-        return (
-          <div className="bg-gradient-to-r from-blue-50 to-white p-6 rounded-xl border border-blue-200">
-            <div className="flex items-start">
-              <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 rounded-xl mr-5">
-                <User size={28} />
-              </div>
-              <div className="flex-grow">
-                <h4 className="text-lg font-semibold text-deep-teal mb-2">User Request Submitted</h4>
-                <div className="bg-white p-4 rounded-lg border border-blue-100 mb-4">
-                  <p className="text-deep-teal font-medium">"{scenario.query}"</p>
-                </div>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div className="bg-gray-50 p-3 rounded-lg">
-                    <div className="text-gray-500">User Role</div>
-                    <div className="font-medium text-deep-teal">{role.name}</div>
-                  </div>
-                  <div className="bg-gray-50 p-3 rounded-lg">
-                    <div className="text-gray-500">Branch</div>
-                    <div className="font-medium text-deep-teal">{role.branch}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-        
-      case 2:
-        // UPDATED: Enhanced OAuth 2.1 step with better MCP integration explanation
-        return (
-          <div className="bg-gradient-to-r from-amber-50 to-white p-6 rounded-xl border border-amber-200">
-            <div className="flex items-start">
-              <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white p-4 rounded-xl mr-5">
-                <Key size={28} />
-              </div>
-              <div className="flex-grow">
-                <h4 className="text-lg font-semibold text-deep-teal mb-2 flex items-center">
-                  OAuth 2.1 Authentication
-                  <span className="ml-2 text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded">MCP Spec Compliant</span>
-                </h4>
-                <p className="text-gray-600 mb-4">
-                  MCP's authorization framework is built on OAuth 2.1, requiring PKCE protection and audience-restricted tokens. 
-                  PlainID integrates with this flow to add fine-grained authorization beyond authentication.
-                </p>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-white p-4 rounded-lg border border-amber-100">
-                    <h5 className="font-medium text-deep-teal mb-2 flex items-center">
-                      <ShieldCheck size={16} className="text-amber-500 mr-2" />
-                      MCP OAuth 2.1 Flow
-                    </h5>
-                    <ul className="text-sm text-gray-600 space-y-1">
-                      <li className="flex items-center">
-                        <Check size={12} className="text-green-500 mr-2" />
-                        Authorization Request with PKCE
-                      </li>
-                      <li className="flex items-center">
-                        <Check size={12} className="text-green-500 mr-2" />
-                        User Authentication & Consent
-                      </li>
-                      <li className="flex items-center">
-                        <Check size={12} className="text-green-500 mr-2" />
-                        Token Request with Code Verifier
-                      </li>
-                      <li className="flex items-center">
-                        <Check size={12} className="text-green-500 mr-2" />
-                        Audience-restricted Bearer Token
-                      </li>
-                    </ul>
-                  </div>
-                  <div className="bg-white p-4 rounded-lg border border-amber-100">
-                    <h5 className="font-medium text-deep-teal mb-2 flex items-center">
-                      <Shield size={16} className="text-teal-500 mr-2" />
-                      PlainID Extends OAuth
-                    </h5>
-                    <div className="text-sm text-gray-600 space-y-2">
-                      <p className="text-xs text-gray-500 italic mb-2">
-                        OAuth tells you WHO — PlainID tells you WHAT they can do
-                      </p>
-                      <div className="flex justify-between border-b border-gray-100 pb-1">
-                        <span>User ID:</span>
-                        <span className="font-mono text-xs">{role.employeeId}</span>
-                      </div>
-                      <div className="flex justify-between border-b border-gray-100 pb-1">
-                        <span>OAuth Scope:</span>
-                        <span className="font-mono text-xs">mcp:tools</span>
-                      </div>
-                      <div className="flex justify-between border-b border-gray-100 pb-1">
-                        <span>Audience:</span>
-                        <span className="font-mono text-xs">acme-bank-mcp</span>
-                      </div>
-                      <div className="flex justify-between text-teal-700">
-                        <span>PlainID Policy:</span>
-                        <span className="font-mono text-xs">role-based-tool-access</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* NEW: OAuth + PlainID integration note */}
-                <div className="mt-4 bg-teal-50 p-3 rounded-lg border border-teal-200">
-                  <div className="flex items-start">
-                    <Info size={16} className="text-teal-600 mr-2 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm text-teal-800">
-                      <strong>Integration point:</strong> PlainID validates the OAuth token and extracts identity claims, 
-                      then applies dynamic policies based on user attributes, agent context, and resource sensitivity.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-        
-      case 3:
-        // UPDATED: Gate 1 with clear "agent never sees hidden tools" messaging
-        const gate1 = gate1Result || evaluateGate1(selectedRole);
-        return (
-          <div className="bg-gradient-to-r from-teal-50 to-white p-6 rounded-xl border-l-4 border-teal-500">
-            <div className="flex items-start">
-              <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-4 rounded-xl mr-5">
-                <Filter size={28} />
-              </div>
-              <div className="flex-grow">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-lg font-semibold text-deep-teal">Gate 1: Tool Discovery Filter</h4>
-                  <DecisionBadge decision={outcome.gate1 === 'permit' ? 'FILTER' : 'DENY'} />
-                </div>
-                
-                {/* NEW: Clear explanation that agent never sees hidden tools */}
-                <div className="bg-teal-100 p-3 rounded-lg border border-teal-200 mb-4">
-                  <div className="flex items-start">
-                    <EyeOff size={16} className="text-teal-700 mr-2 mt-0.5 flex-shrink-0" />
-                    <p className="text-sm text-teal-800">
-                      <strong>Key security principle:</strong> The AI agent <em>only receives</em> the filtered tool list. 
-                      Unauthorized tools are never exposed — not filtered after-the-fact, but completely invisible to the agent.
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-sm font-medium text-gray-600 mb-2 flex items-center">
-                      <Server size={14} className="mr-1 text-gray-400" />
-                      MCP Server Has ({getAllTools().length} tools)
-                    </div>
-                    <div className="bg-gray-100 rounded-lg p-4 border border-gray-200">
-                      <div className="text-xs text-gray-500 mb-2">Full tool inventory (not sent to agent):</div>
-                      <div className="flex flex-wrap gap-1">
-                        {getAllTools().map(t => (
-                          <span 
-                            key={t.name}
-                            className={`text-xs px-2 py-0.5 rounded ${
-                              gate1.filteredTools.some(ft => ft.name === t.name)
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-red-100 text-red-800 line-through'
-                            }`}
-                          >
-                            {t.name}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-gray-600 mb-2 flex items-center">
-                      <Bot size={14} className="mr-1 text-teal-500" />
-                      Agent Receives ({gate1.filteredCount} tools)
-                    </div>
-                    <JsonViewer 
-                      data={{
-                        jsonrpc: "2.0",
-                        id: 1,
-                        result: {
-                          tools: gate1.filteredTools.map(t => ({
-                            name: t.name,
-                            description: t.description
-                          }))
-                        }
-                      }}
-                      maxHeight="150px"
-                    />
-                  </div>
-                </div>
-                
-                {gate1.removedTools.length > 0 && (
-                  <div className="mt-4 bg-yellow-50 p-3 rounded-lg border border-yellow-200">
-                    <div className="text-sm font-medium text-yellow-800 mb-1 flex items-center">
-                      <Lock size={14} className="mr-1" />
-                      {gate1.removedCount} tools hidden from agent by policy
-                    </div>
-                    <div className="text-xs text-yellow-700">
-                      These tools exist but are invisible to the agent: {gate1.removedTools.slice(0, 3).map(t => t.name).join(', ')}
-                      {gate1.removedTools.length > 3 && ` +${gate1.removedTools.length - 3} more`}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-        
-      case 4:
-        const toolAvailable = outcome.gate1 === 'permit';
-        return (
-          <div className="bg-gradient-to-r from-purple-50 to-white p-6 rounded-xl border border-purple-200">
-            <div className="flex items-start">
-              <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-4 rounded-xl mr-5">
-                <Bot size={28} />
-              </div>
-              <div className="flex-grow">
-                <h4 className="text-lg font-semibold text-deep-teal mb-2">AI Agent Tool Selection</h4>
-                <p className="text-gray-600 mb-4">
-                  The Enterprise AI Assistant analyzes the request and selects from its <strong>visible</strong> tool list 
-                  (already filtered by Gate 1).
-                </p>
-                
-                {toolAvailable ? (
-                  <div className="bg-white p-4 rounded-lg border border-purple-100">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center">
-                        <Check size={18} className="text-green-500 mr-2" />
-                        <span className="font-medium text-deep-teal">Tool Selected</span>
-                      </div>
-                      <span className="font-mono text-sm bg-purple-100 text-purple-800 px-2 py-1 rounded">
-                        {scenario.tool}
-                      </span>
-                    </div>
-                    <div className="text-sm text-gray-600">
-                      <div className="flex justify-between py-1 border-b border-gray-100">
-                        <span>Server:</span>
-                        <span className="font-mono">{getToolByName(scenario.tool)?.serverName}</span>
-                      </div>
-                      <div className="flex justify-between py-1">
-                        <span>Parameters:</span>
-                        <span className="font-mono">{JSON.stringify(scenario.params)}</span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-                    <div className="flex items-center text-red-700 mb-2">
-                      <XCircle size={18} className="mr-2" />
-                      <span className="font-medium">Tool Not in Agent's Visible List</span>
-                    </div>
-                    <p className="text-sm text-red-600">
-                      The agent cannot attempt to use "{scenario.tool}" because it was never exposed in the filtered tool list.
-                      The agent will respond that it cannot perform this action.
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-        
-      case 5:
-        const gate2 = gate2Result || evaluateGate2(selectedRole, scenario.tool, scenario.params);
-        return (
-          <div className={`p-6 rounded-xl border-l-4 ${
-            outcome.gate2 === 'permit' 
-              ? 'bg-gradient-to-r from-blue-50 to-white border-blue-500'
-              : 'bg-gradient-to-r from-red-50 to-white border-red-500'
-          }`}>
-            <div className="flex items-start">
-              <div className={`p-4 rounded-xl mr-5 text-white ${
-                outcome.gate2 === 'permit'
-                  ? 'bg-gradient-to-r from-blue-500 to-blue-600'
-                  : 'bg-gradient-to-r from-red-500 to-red-600'
-              }`}>
-                <Shield size={28} />
-              </div>
-              <div className="flex-grow">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-lg font-semibold text-deep-teal">Gate 2: Execution Authorization</h4>
-                  <DecisionBadge decision={outcome.gate2 === 'permit' ? 'PERMIT' : 'DENY'} />
-                </div>
-                
-                <p className="text-gray-600 mb-4">
-                  PlainID intercepts the <code className="bg-gray-100 px-1 rounded">tools/call</code> request and validates 
-                  parameters, scope boundaries, and amount limits before forwarding to the MCP server.
-                </p>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-sm font-medium text-gray-600 mb-2">Authorization Context</div>
-                    <JsonViewer 
-                      data={generateAuthContext(selectedRole, scenario.tool, scenario.params)}
-                      maxHeight="180px"
-                    />
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-gray-600 mb-2">Policy Decision</div>
-                    <JsonViewer 
-                      data={{
-                        decision: outcome.gate2 === 'permit' ? 'PERMIT' : 'DENY',
-                        tool: scenario.tool,
-                        policies_evaluated: [
-                          {
-                            policy: "role-based-tool-access",
-                            result: outcome.gate1 === 'permit' ? 'PERMIT' : 'DENY'
-                          },
-                          {
-                            policy: "branch-boundary-enforcement",
-                            result: outcome.gate2 === 'permit' ? 'PERMIT' : 'DENY'
-                          }
-                        ],
-                        reason: gate2.reason
-                      }}
-                      maxHeight="180px"
-                    />
-                  </div>
-                </div>
-                
-                {outcome.gate2 === 'deny' && outcome.suggestion && (
-                  <div className="mt-4 bg-yellow-50 p-3 rounded-lg border border-yellow-200">
-                    <div className="flex items-center text-yellow-800">
-                      <Info size={16} className="mr-2" />
-                      <span className="text-sm font-medium">Suggestion: {outcome.suggestion}</span>
-                    </div>
-                  </div>
-                )}
-                
-                {outcome.agentCheck?.triggered && (
-                  <div className="mt-4 bg-orange-50 p-3 rounded-lg border border-orange-200">
-                    <div className="flex items-center text-orange-800">
-                      <AlertTriangle size={16} className="mr-2" />
-                      <span className="text-sm font-medium">Agent Guardrail: {outcome.agentCheck.reason}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-        
-      case 6:
-        if (outcome.gate2 === 'deny') {
-          return (
-            <div className="bg-gray-100 p-6 rounded-xl border border-gray-200 text-center">
-              <div className="text-gray-400 mb-4">
-                <X size={48} className="mx-auto" />
-              </div>
-              <h4 className="text-lg font-semibold text-gray-600 mb-2">Execution Blocked by PlainID Proxy</h4>
-              <p className="text-gray-500">
-                The <code className="bg-gray-200 px-1 rounded">tools/call</code> request was not forwarded to the MCP server.
-              </p>
-            </div>
-          );
-        }
-        
-        return (
-          <div className="bg-gradient-to-r from-green-50 to-white p-6 rounded-xl border border-green-200">
-            <div className="flex items-start">
-              <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-4 rounded-xl mr-5">
-                <Server size={28} />
-              </div>
-              <div className="flex-grow">
-                <h4 className="text-lg font-semibold text-deep-teal mb-2">MCP Server Execution</h4>
-                <p className="text-gray-600 mb-4">
-                  PlainID proxy forwards the authorized request to the MCP server. The server executes and returns raw results.
-                </p>
-                
-                <div className="bg-white p-4 rounded-lg border border-green-100">
-                  <div className="flex items-center mb-3">
-                    <Zap size={18} className="text-green-500 mr-2" />
-                    <span className="font-medium text-deep-teal">Tool Executed Successfully</span>
-                  </div>
-                  <JsonViewer 
-                    data={{
-                      jsonrpc: "2.0",
-                      id: 2,
-                      result: outcome.response
-                    }}
-                    title="MCP Response (Raw - before Gate 3)"
-                    maxHeight="200px"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-        
-      case 7:
-        if (outcome.gate2 === 'deny') {
-          return (
-            <div className="bg-gray-100 p-6 rounded-xl border border-gray-200 text-center">
-              <div className="text-gray-400 mb-4">
-                <X size={48} className="mx-auto" />
-              </div>
-              <h4 className="text-lg font-semibold text-gray-600 mb-2">Response Masking Skipped</h4>
-              <p className="text-gray-500">
-                No response to mask due to authorization denial.
-              </p>
-            </div>
-          );
-        }
-        
-        const gate3 = gate3Result || evaluateGate3(selectedRole, outcome.response || {});
-        return (
-          <div className="bg-gradient-to-r from-purple-50 to-white p-6 rounded-xl border-l-4 border-purple-500">
-            <div className="flex items-start">
-              <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-4 rounded-xl mr-5">
-                <Eye size={28} />
-              </div>
-              <div className="flex-grow">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-lg font-semibold text-deep-teal">Gate 3: Response Masking</h4>
-                  <DecisionBadge decision={gate3.decision} />
-                </div>
-                
-                <p className="text-gray-600 mb-4">
-                  PlainID proxy intercepts the MCP server response and applies data masking before forwarding to the agent.
-                </p>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-sm font-medium text-gray-600 mb-2 flex items-center">
-                      <Server size={14} className="mr-1 text-red-400" />
-                      From MCP Server (Raw)
-                    </div>
-                    <div className="bg-red-50 rounded-lg p-4 border border-red-200">
-                      <pre className="text-xs font-mono overflow-auto max-h-40">
-                        {JSON.stringify(outcome.response, null, 2)}
-                      </pre>
-                      {gate3.maskedFields.length > 0 && (
-                        <div className="mt-2 text-xs text-red-600">
-                          ⚠️ Contains {gate3.maskedFields.length} sensitive field(s)
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-gray-600 mb-2 flex items-center">
-                      <Bot size={14} className="mr-1 text-green-500" />
-                      To Agent (Masked)
-                    </div>
-                    <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-                      <pre className="text-xs font-mono overflow-auto max-h-40">
-                        {JSON.stringify(gate3.maskedResponse, null, 2)}
-                      </pre>
-                      <div className="mt-2 text-xs text-green-600">
-                        ✓ Policy-compliant response
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                
-                {gate3.maskedFields.length > 0 && (
-                  <div className="mt-4 bg-purple-50 p-3 rounded-lg border border-purple-200">
-                    <div className="text-sm font-medium text-purple-800 mb-2">Fields Masked by PlainID Proxy:</div>
-                    <div className="space-y-1">
-                      {gate3.maskedFields.map((field, idx) => (
-                        <div key={idx} className="text-xs text-purple-700 flex items-center">
-                          <Eye size={12} className="mr-1" />
-                          <span className="font-mono">{field.field}</span>: {field.reason}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-        
-      case 8:
-        return (
-          <div className={`p-6 rounded-xl ${
-            outcome.finalResult === 'success'
-              ? 'bg-gradient-to-r from-green-50 to-white border border-green-200'
-              : 'bg-gradient-to-r from-red-50 to-white border border-red-200'
-          }`}>
-            <div className="flex items-start">
-              <div className={`p-4 rounded-xl mr-5 text-white ${
-                outcome.finalResult === 'success'
-                  ? 'bg-gradient-to-r from-green-500 to-green-600'
-                  : 'bg-gradient-to-r from-red-500 to-red-600'
-              }`}>
-                {outcome.finalResult === 'success' ? <Check size={28} /> : <X size={28} />}
-              </div>
-              <div className="flex-grow">
-                <h4 className="text-lg font-semibold text-deep-teal mb-2">
-                  {outcome.finalResult === 'success' ? 'Request Completed Successfully' : 'Request Denied'}
-                </h4>
-                
-                {outcome.finalResult === 'success' ? (
-                  <>
-                    <p className="text-gray-600 mb-4">
-                      The PlainID proxy has completed all authorization checks. The policy-compliant response 
-                      is delivered to the AI agent and then to the user.
-                    </p>
-                    <div className="bg-white p-4 rounded-lg border border-green-200">
-                      <div className="flex items-center mb-3">
-                        <Shield size={18} className="text-teal-500 mr-2" />
-                        <span className="font-medium text-deep-teal">Final Response (Policy-Compliant)</span>
-                      </div>
-                      <JsonViewer 
-                        data={gate3Result?.maskedResponse || outcome.response}
-                        maxHeight="150px"
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-gray-600 mb-4">
-                      The request was blocked by PlainID's authorization proxy. 
-                      {outcome.reason && ` Reason: ${outcome.reason}`}
-                    </p>
-                    <div className="bg-red-100 p-4 rounded-lg border border-red-200">
-                      <div className="flex items-center">
-                        <Lock size={18} className="text-red-600 mr-2" />
-                        <span className="text-red-800">
-                          Access denied based on role "{role.name}" and policy "{outcome.policy}"
-                        </span>
-                      </div>
-                    </div>
-                  </>
-                )}
-                
-                {/* Summary of gates */}
-                <div className="mt-6 grid grid-cols-3 gap-4">
-                  <div className={`p-3 rounded-lg ${
-                    outcome.gate1 === 'permit' ? 'bg-teal-100' : 'bg-red-100'
-                  }`}>
-                    <GateBadge gate={1} />
-                    <div className={`text-sm font-medium mt-2 ${
-                      outcome.gate1 === 'permit' ? 'text-teal-800' : 'text-red-800'
-                    }`}>
-                      {outcome.gate1 === 'permit' ? 'Passed' : 'Denied'}
-                    </div>
-                  </div>
-                  <div className={`p-3 rounded-lg ${
-                    outcome.gate2 === 'permit' ? 'bg-blue-100' : 
-                    outcome.gate2 === 'skip' ? 'bg-gray-100' : 'bg-red-100'
-                  }`}>
-                    <GateBadge gate={2} />
-                    <div className={`text-sm font-medium mt-2 ${
-                      outcome.gate2 === 'permit' ? 'text-blue-800' : 
-                      outcome.gate2 === 'skip' ? 'text-gray-600' : 'text-red-800'
-                    }`}>
-                      {outcome.gate2 === 'permit' ? 'Passed' : 
-                       outcome.gate2 === 'skip' ? 'Skipped' : 'Denied'}
-                    </div>
-                  </div>
-                  <div className={`p-3 rounded-lg ${
-                    outcome.gate3 === 'mask' ? 'bg-purple-100' : 
-                    outcome.gate3 === 'skip' ? 'bg-gray-100' : 'bg-green-100'
-                  }`}>
-                    <GateBadge gate={3} />
-                    <div className={`text-sm font-medium mt-2 ${
-                      outcome.gate3 === 'mask' ? 'text-purple-800' : 
-                      outcome.gate3 === 'skip' ? 'text-gray-600' : 'text-green-800'
-                    }`}>
-                      {outcome.gate3 === 'mask' ? 'Masked' : 
-                       outcome.gate3 === 'skip' ? 'Skipped' : 'Passed'}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-        
-      default:
-        return null;
-    }
-  };
-
-  // Render comparison view
-  const renderComparisonView = () => {
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Without PlainID */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <div className="flex items-center mb-6">
-            <div className="rounded-full bg-red-50 p-3 mr-3">
-              <Unlock className="text-red-500" size={24} />
-            </div>
-            <div>
-              <h3 className="text-xl font-semibold text-gray-900">Without PlainID</h3>
-              <p className="text-sm text-gray-500">Standard MCP - No Authorization Proxy</p>
-            </div>
-          </div>
-          
-          <div className="space-y-4">
-            <div>
-              <h4 className="font-medium text-gray-700 mb-2 text-sm">Query</h4>
-              <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                <p className="text-sm text-gray-900">{scenario.query}</p>
-              </div>
-            </div>
-            
-            <div>
-              <h4 className="font-medium text-gray-700 mb-2 text-sm">Tool Discovery</h4>
-              <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                <div className="flex items-center text-red-700 mb-2">
-                  <X size={14} className="mr-1" />
-                  <span className="text-sm">All 12 tools exposed to all users</span>
-                </div>
-                <div className="text-xs text-red-600">
-                  Agent sees everything — no filtering
-                </div>
-              </div>
-            </div>
-            
-            <div>
-              <h4 className="font-medium text-gray-700 mb-2 text-sm">Execution</h4>
-              <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                <div className="flex items-center text-red-700 mb-2">
-                  <X size={14} className="mr-1" />
-                  <span className="text-sm">No parameter-level authorization</span>
-                </div>
-                <div className="text-xs text-red-600">
-                  Any authenticated user can call any tool with any parameters
-                </div>
-              </div>
-            </div>
-            
-            <div>
-              <h4 className="font-medium text-gray-700 mb-2 text-sm">Response</h4>
-              <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-                <pre className="text-xs font-mono overflow-auto max-h-32 text-gray-800">
-{JSON.stringify({
-  account_id: "12345",
-  customer_name: "John Smith",
-  ssn: "123-45-6789",
-  account_number: "9876543210",
-  balance: 45230.00
-}, null, 2)}
-                </pre>
-                <div className="mt-2 p-2 bg-red-100 border border-red-300 rounded">
-                  <p className="text-red-700 text-xs flex items-center">
-                    <AlertTriangle size={12} className="mr-1" />
-                    SSN and full account number exposed!
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        {/* With PlainID */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
-          <div className="flex items-center mb-6">
-            <div className="rounded-full bg-teal-50 p-3 mr-3">
-              <Shield className="text-teal-500" size={24} />
-            </div>
-            <div>
-              <h3 className="text-xl font-semibold text-gray-900 flex items-center">
-                With PlainID
-                <AlphaTag />
-              </h3>
-              <p className="text-sm text-gray-500">Inline Authorization Proxy for MCP</p>
-            </div>
-          </div>
-          
-          <div className="space-y-4">
-            <div>
-              <h4 className="font-medium text-gray-700 mb-2 text-sm">Query</h4>
-              <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                <p className="text-sm text-gray-900">{scenario.query}</p>
-              </div>
-            </div>
-            
-            <div>
-              <h4 className="font-medium text-gray-700 mb-2 text-sm flex items-center">
-                <GateBadge gate={1} />
-                <span className="ml-2">Tool Discovery</span>
-              </h4>
-              <div className="bg-teal-50 p-3 rounded-lg border border-teal-200">
-                <div className="flex items-center text-teal-700 mb-2">
-                  <Check size={14} className="mr-1" />
-                  <span className="text-sm">
-                    {outcome.gate1 === 'permit' 
-                      ? `Agent only sees ${evaluateGate1(selectedRole).filteredCount} permitted tools`
-                      : 'Tool completely hidden from agent'
-                    }
-                  </span>
-                </div>
-                <div className="text-xs text-teal-600">
-                  Unauthorized tools are never exposed
-                </div>
-              </div>
-            </div>
-            
-            <div>
-              <h4 className="font-medium text-gray-700 mb-2 text-sm flex items-center">
-                <GateBadge gate={2} />
-                <span className="ml-2">Execution</span>
-              </h4>
-              <div className={`p-3 rounded-lg border ${
-                outcome.gate2 === 'permit' 
-                  ? 'bg-blue-50 border-blue-200' 
-                  : 'bg-red-50 border-red-200'
-              }`}>
-                <div className={`flex items-center mb-2 ${
-                  outcome.gate2 === 'permit' ? 'text-blue-700' : 'text-red-700'
-                }`}>
-                  {outcome.gate2 === 'permit' 
-                    ? <Check size={14} className="mr-1" />
-                    : <X size={14} className="mr-1" />
-                  }
-                  <span className="text-sm">
-                    {outcome.gate2 === 'permit' 
-                      ? 'Proxy validates scope and parameters'
-                      : outcome.reason || 'Blocked by proxy'
-                    }
-                  </span>
-                </div>
-                <div className={`text-xs ${
-                  outcome.gate2 === 'permit' ? 'text-blue-600' : 'text-red-600'
-                }`}>
-                  Policy: branch-boundary-enforcement
-                </div>
-              </div>
-            </div>
-            
-            <div>
-              <h4 className="font-medium text-gray-700 mb-2 text-sm flex items-center">
-                <GateBadge gate={3} />
-                <span className="ml-2">Response</span>
-              </h4>
-              <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
-                <pre className="text-xs font-mono overflow-auto max-h-32 text-gray-800">
-{JSON.stringify(outcome.response || {
-  message: "Access denied",
-  reason: outcome.reason
-}, null, 2)}
-                </pre>
-                <div className="mt-2 p-2 bg-purple-100 border border-purple-300 rounded">
-                  <p className="text-purple-700 text-xs flex items-center">
-                    <Shield size={12} className="mr-1" />
-                    {outcome.finalResult === 'success' 
-                      ? 'SSN masked by proxy before reaching agent'
-                      : 'Blocked by proxy — no data exposed'
-                    }
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Render incident prevention view
-  const renderIncidentView = () => {
-    return (
-      <div className="space-y-6">
-        <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold text-deep-teal mb-2">
-            Security Incident Prevention
-          </h2>
-          <p className="text-gray-600">
-            See how PlainID's inline proxy prevents real-world MCP security incidents
-          </p>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {incidents.map((incident) => (
-            <div key={incident.id} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm hover:shadow-md transition-shadow">
-              <div className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium mb-3 ${
-                incident.severity === 'critical' ? 'bg-red-100 text-red-800' :
-                incident.severity === 'high' ? 'bg-orange-100 text-orange-800' :
-                'bg-yellow-100 text-yellow-800'
-              }`}>
-                <AlertTriangle size={12} className="mr-1" />
-                {incident.severity.toUpperCase()}
-              </div>
-              
-              <h3 className="text-lg font-semibold text-deep-teal mb-2">{incident.name}</h3>
-              <p className="text-sm text-gray-500 mb-3">{incident.company} • {incident.date}</p>
-              <p className="text-sm text-gray-600 mb-4">{incident.description}</p>
-              
-              <div className="space-y-3">
-                <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                  <div className="text-xs font-medium text-red-800 mb-1">Without PlainID:</div>
-                  <div className="text-xs text-red-700">{incident.without_plainid.outcome}</div>
-                </div>
-                
-                <div className="bg-green-50 p-3 rounded-lg border border-green-200">
-                  <div className="text-xs font-medium text-green-800 mb-1">With PlainID Proxy:</div>
-                  <div className="text-xs text-green-700">{incident.with_plainid.outcome}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
   return (
-    <div className="flex flex-col min-h-screen bg-gradient-to-br from-icy-gray via-white to-icy-gray font-sans">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b border-gray-100 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center">
-            <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-2.5 rounded-lg shadow-sm">
-              <Shield size={24} />
-            </div>
-            <div className="ml-3">
-              <h1 className="text-xl font-medium text-deep-teal tracking-tight flex items-center">
-                PlainID MCP Authorizer
-                <AlphaTag />
-              </h1>
-              <p className="text-xs text-gray-500">Inline Proxy for Dynamic MCP Authorization</p>
-            </div>
-          </div>
-          <div className="flex space-x-3">
-            <button
-              onClick={() => { setShowIncidents(false); setShowComparison(!showComparison); }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                showComparison && !showIncidents
-                  ? 'bg-teal-500 text-white'
-                  : 'bg-white border border-gray-200 text-gray-700 hover:border-teal-400'
-              }`}
-            >
-              {showComparison && !showIncidents ? 'Show Pipeline' : 'Compare Approaches'}
-            </button>
-            <button
-              onClick={() => { setShowComparison(false); setShowIncidents(!showIncidents); }}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                showIncidents
-                  ? 'bg-teal-500 text-white'
-                  : 'bg-white border border-gray-200 text-gray-700 hover:border-teal-400'
-              }`}
-            >
-              {showIncidents ? 'Show Pipeline' : 'Incident Prevention'}
-            </button>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-white flex flex-col">
+      <Header activeView={activeView} onViewChange={setActiveView} />
       
-      {/* Main Content */}
-      <main className="flex-grow max-w-7xl mx-auto w-full px-6 py-8">
-        {showIncidents ? (
-          renderIncidentView()
-        ) : showComparison ? (
-          renderComparisonView()
-        ) : (
-          <>
-            {/* NEW: Proxy Architecture Diagram */}
-            <ProxyArchitectureDiagram activeGate={getActiveGate()} />
-            
-            {/* Configuration Panel */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Role Selection */}
-                <div>
-                  <h3 className="text-sm font-semibold text-deep-teal uppercase tracking-wider mb-3">
-                    Select User Role
-                  </h3>
-                  <RoleSelector 
-                    roles={roles} 
-                    selectedId={selectedRole} 
-                    onSelect={(id) => { setSelectedRole(id); resetPipeline(); }}
-                    disabled={isRunning}
-                  />
-                </div>
-                
-                {/* Scenario Selection */}
-                <div className="lg:col-span-2">
-                  <h3 className="text-sm font-semibold text-deep-teal uppercase tracking-wider mb-3">
-                    Select Scenario
-                  </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    <ScenarioSelector 
-                      scenarios={scenarios.slice(0, 3)} 
-                      selectedId={selectedScenario}
-                      onSelect={(id) => { setSelectedScenario(id); resetPipeline(); }}
-                      disabled={isRunning}
-                    />
-                    <ScenarioSelector 
-                      scenarios={scenarios.slice(3)} 
-                      selectedId={selectedScenario}
-                      onSelect={(id) => { setSelectedScenario(id); resetPipeline(); }}
-                      disabled={isRunning}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {/* Identity Panel */}
-            <div className="mb-8">
-              <IdentityPanel role={role} agent={agent} />
-            </div>
-            
-            {/* Pipeline Visualization */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
-              <div className="flex items-center justify-between mb-6">
-                <div>
-                  <h3 className="text-lg font-semibold text-deep-teal">MCP Authorization Pipeline</h3>
-                  <p className="text-sm text-gray-500">
-                    {currentStep === 0 
-                      ? 'Click "Start Simulation" to see the proxy-based authorization flow'
-                      : PIPELINE_STEPS[currentStep].description
-                    }
-                  </p>
-                </div>
-                <div className="flex space-x-3">
-                  {currentStep === 0 && (
-                    <button
-                      onClick={startPipeline}
-                      className="flex items-center px-6 py-2.5 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg font-medium shadow-sm hover:shadow-md transition-all"
-                    >
-                      <Play size={18} className="mr-2" />
-                      Start Simulation
-                    </button>
-                  )}
-                  {currentStep > 0 && currentStep < PIPELINE_STEPS.length - 1 && (
-                    <button
-                      onClick={skipToNext}
-                      className="flex items-center px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg font-medium hover:border-teal-400 transition-all"
-                    >
-                      <ChevronRight size={18} className="mr-1" />
-                      Skip
-                    </button>
-                  )}
-                  {currentStep === PIPELINE_STEPS.length - 1 && (
-                    <button
-                      onClick={() => { resetPipeline(); startPipeline(); }}
-                      className="flex items-center px-6 py-2.5 bg-gradient-to-r from-teal-500 to-teal-600 text-white rounded-lg font-medium shadow-sm hover:shadow-md transition-all"
-                    >
-                      <RotateCcw size={18} className="mr-2" />
-                      Run Again
-                    </button>
-                  )}
-                  {currentStep > 0 && (
-                    <button
-                      onClick={resetPipeline}
-                      className="flex items-center px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg font-medium hover:border-teal-400 transition-all"
-                    >
-                      <RotateCcw size={18} className="mr-1" />
-                      Reset
-                    </button>
-                  )}
-                </div>
-              </div>
-              
-              {/* Progress Steps */}
-              <div className="mb-8">
-                <ProgressSteps currentStep={currentStep} steps={PIPELINE_STEPS} />
-              </div>
-              
-              {/* Step Content */}
-              <div className="min-h-[400px]">
-                {renderStepContent()}
-              </div>
-              
-              {/* Processing Indicator */}
-              {isRunning && currentStep < PIPELINE_STEPS.length - 1 && (
-                <div className="flex items-center justify-center mt-6 text-teal-600">
-                  <div className="flex space-x-1 mr-3">
-                    <span className="w-2 h-2 bg-teal-500 rounded-full animate-bounce" />
-                    <span className="w-2 h-2 bg-teal-500 rounded-full animate-bounce animation-delay-100" />
-                    <span className="w-2 h-2 bg-teal-500 rounded-full animate-bounce animation-delay-200" />
-                  </div>
-                  <span className="text-sm font-medium">Processing through PlainID proxy...</span>
-                </div>
-              )}
-            </div>
-            
-            {/* Audit Log */}
-            {auditLog.length > 0 && <AuditLog entries={auditLog} />}
-            
-            {/* Key Takeaways */}
-            {currentStep === PIPELINE_STEPS.length - 1 && <KeyTakeaways />}
-          </>
+      <main className="flex-1">
+        {activeView === 'simulation' && <SimulationView />}
+        {activeView === 'compare' && (
+          <CompareView 
+            selectedRole={selectedRole}
+            selectedScenario={selectedScenario}
+            onRoleChange={setSelectedRole}
+            onScenarioChange={setSelectedScenario}
+          />
         )}
+        {activeView === 'incidents' && <IncidentsView />}
       </main>
       
-      {/* Footer */}
-      <footer className="bg-gradient-to-r from-deep-teal to-slate text-white py-8 mt-8">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex flex-col md:flex-row justify-between items-center">
-            <div className="flex items-center mb-4 md:mb-0">
-              <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-2 rounded-lg shadow-sm">
-                <Shield size={18} />
-              </div>
-              <div className="ml-3">
-                <p className="font-medium flex items-center">
-                  PlainID MCP Authorizer
-                  <AlphaTag />
-                </p>
-                <p className="text-sm text-gray-300">Inline Proxy for Zero-Trust AI Authorization</p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <span className="text-sm px-4 py-2 bg-teal-500 bg-opacity-20 rounded-lg font-medium">
-                Proxy Architecture
-              </span>
-              <span className="text-sm px-4 py-2 bg-teal-500 bg-opacity-20 rounded-lg font-medium">
-                OAuth 2.1 Integration
-              </span>
-              <span className="text-sm px-4 py-2 bg-teal-500 bg-opacity-20 rounded-lg font-medium">
-                Dynamic Authorization
-              </span>
-            </div>
-          </div>
-          <div className="mt-8 pt-6 border-t border-gray-700/50 text-center">
-            <p className="text-sm text-gray-400">
-              Made by the{' '}
-              <a 
-                href="mailto:presales@plainid.com"
-                className="text-gray-400 hover:text-teal-400 transition-colors underline-offset-2 hover:underline"
-              >
-                SE Team
-              </a>
-              {' '}for Walkthrough Purposes
-            </p>
-          </div>
-        </div>
-      </footer>
-      
-      {/* CTA Modal */}
-      <CTAModal isOpen={showCTAModal} onClose={() => setShowCTAModal(false)} />
+      <Footer />
     </div>
   );
 }
