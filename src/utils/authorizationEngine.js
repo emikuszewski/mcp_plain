@@ -15,6 +15,8 @@ export const generateTimestamp = () => {
 };
 
 // Gate 1: Tool Discovery Filter
+// KEY POINT: This filtering happens BEFORE the agent sees the tool list
+// The agent only receives the filtered list - it never knows about hidden tools
 export const evaluateGate1 = (roleId) => {
   const role = getRoleById(roleId);
   const allTools = getAllTools();
@@ -44,10 +46,13 @@ export const evaluateGate1 = (roleId) => {
     removedTools,
     policy: getPolicyById('role-based-tool-access'),
     timestamp: generateTimestamp(),
+    // Clarify that this is what gets sent to the agent
+    agentReceives: filteredTools.map(t => ({ name: t.name, description: t.description })),
   };
 };
 
 // Gate 2: Execution Authorization
+// This happens when the agent tries to call a tool
 export const evaluateGate2 = (roleId, toolName, params) => {
   const role = getRoleById(roleId);
   const permission = getRolePermission(roleId, toolName);
@@ -60,6 +65,7 @@ export const evaluateGate2 = (roleId, toolName, params) => {
       reason: `Tool "${toolName}" is not authorized for role "${role.name}"`,
       policy: getPolicyById('role-based-tool-access'),
       timestamp: generateTimestamp(),
+      proxyAction: 'Request blocked - not forwarded to MCP server',
     };
   }
   
@@ -70,6 +76,7 @@ export const evaluateGate2 = (roleId, toolName, params) => {
       reason: `User branch "${role.branch}" does not match resource branch "${params.branch}"`,
       policy: getPolicyById('branch-boundary-enforcement'),
       timestamp: generateTimestamp(),
+      proxyAction: 'Request blocked - not forwarded to MCP server',
     };
   }
   
@@ -83,6 +90,7 @@ export const evaluateGate2 = (roleId, toolName, params) => {
         policy: getPolicyById('loan-approval-limits'),
         suggestion: roleId === 'loan_officer' ? 'Escalate to Branch Manager for approval' : 'Escalate to Regional Director',
         timestamp: generateTimestamp(),
+        proxyAction: 'Request blocked - not forwarded to MCP server',
       };
     }
   }
@@ -96,6 +104,7 @@ export const evaluateGate2 = (roleId, toolName, params) => {
         reason: `Transfer amount $${params.amount.toLocaleString()} exceeds limit of $${limit.toLocaleString()} for role "${role.name}"`,
         policy: getPolicyById('branch-boundary-enforcement'),
         timestamp: generateTimestamp(),
+        proxyAction: 'Request blocked - not forwarded to MCP server',
       };
     }
   }
@@ -115,10 +124,12 @@ export const evaluateGate2 = (roleId, toolName, params) => {
     policy: getPolicyById('role-based-tool-access'),
     agentCheck,
     timestamp: generateTimestamp(),
+    proxyAction: 'Request forwarded to MCP server',
   };
 };
 
 // Gate 3: Response Masking
+// This happens when the MCP server returns data - the proxy masks before forwarding to agent
 export const evaluateGate3 = (roleId, responseData) => {
   const role = getRoleById(roleId);
   const maskedFields = [];
@@ -178,6 +189,9 @@ export const evaluateGate3 = (roleId, responseData) => {
     maskedResponse,
     policy: getPolicyById('pii-masking'),
     timestamp: generateTimestamp(),
+    proxyAction: maskedFields.length > 0 
+      ? `Response masked (${maskedFields.length} fields) before forwarding to agent`
+      : 'Response forwarded to agent unmodified',
   };
 };
 
