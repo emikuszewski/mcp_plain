@@ -22,9 +22,9 @@ export const incidents = [
     },
     with_plainid: {
       title: 'With PlainID',
-      description: 'PlainID\'s Gate 2 validates tenant context before tool execution',
+      description: 'PlainID proxy validates tenant context before forwarding to MCP server',
       policies_applied: ['tenant-isolation', 'resource-boundary-enforcement'],
-      outcome: 'Request denied - tenant mismatch detected',
+      outcome: 'Request blocked by proxy — tenant mismatch detected',
       protection: 'Zero cross-tenant data exposure',
     },
     simulation_scenario: {
@@ -61,7 +61,7 @@ export const incidents = [
     },
     with_plainid: {
       title: 'With PlainID',
-      description: 'PlainID\'s Gate 3 masks sensitive data before response delivery',
+      description: 'PlainID proxy intercepts response and masks sensitive data before forwarding to agent',
       policies_applied: ['pii-masking', 'response-sanitization'],
       outcome: 'Sensitive fields automatically redacted based on user/agent permissions',
       protection: 'SSN, account numbers, and confidential data masked',
@@ -102,10 +102,10 @@ export const incidents = [
     },
     with_plainid: {
       title: 'With PlainID',
-      description: 'PlainID\'s Gate 1 filters tool discovery based on user role and permissions',
+      description: 'PlainID proxy filters tools/list response — agent only sees permitted tools',
       policies_applied: ['role-based-tool-access', 'principle-of-least-privilege'],
       outcome: 'Users only see tools they are authorized to use',
-      protection: 'Admin tools completely hidden from non-admin users',
+      protection: 'Admin tools completely invisible to non-admin users',
     },
     simulation_scenario: {
       query: 'List all available tools',
