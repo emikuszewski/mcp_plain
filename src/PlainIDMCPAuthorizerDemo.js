@@ -3,7 +3,8 @@ import {
   Shield, User, Bot, Server, Database, Filter, Eye, Lock, Unlock,
   Check, X, AlertTriangle, ChevronRight, ArrowRight, Play, RotateCcw,
   Calendar, Download, FileText, Key, Layers, Users, MapPin, Clock,
-  CheckCircle, XCircle, AlertCircle, Info, Zap, Activity
+  CheckCircle, XCircle, AlertCircle, Info, Zap, Activity, GitBranch,
+  ArrowLeftRight, ShieldCheck, EyeOff
 } from 'lucide-react';
 
 // Import data
@@ -47,6 +48,14 @@ const AlphaTag = () => (
   <span className="ml-2 px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded uppercase">
     Alpha
   </span>
+);
+
+// Architecture Badge - NEW: Shows PlainID's position in the flow
+const ArchitectureBadge = () => (
+  <div className="inline-flex items-center px-3 py-1.5 bg-gradient-to-r from-teal-50 to-blue-50 border border-teal-200 rounded-lg text-sm">
+    <ArrowLeftRight size={14} className="text-teal-600 mr-2" />
+    <span className="text-teal-800 font-medium">Inline Proxy Architecture</span>
+  </div>
 );
 
 // JSON Viewer with syntax highlighting
@@ -154,6 +163,72 @@ const GateBadge = ({ gate, active = false }) => {
     <div className={`inline-flex items-center px-3 py-1.5 rounded-lg ${colorClasses[config.color]} transition-all duration-300`}>
       <Shield size={14} className="mr-1.5" />
       <span className="font-medium text-sm">{config.label}</span>
+    </div>
+  );
+};
+
+// NEW: Proxy Architecture Diagram Component
+const ProxyArchitectureDiagram = ({ activeGate = null }) => {
+  return (
+    <div className="bg-gradient-to-r from-slate-50 to-gray-50 rounded-xl border border-gray-200 p-6 mb-6">
+      <h4 className="text-sm font-semibold text-deep-teal uppercase tracking-wider mb-4 flex items-center">
+        <GitBranch size={16} className="mr-2 text-teal-500" />
+        PlainID Inline Proxy Architecture
+      </h4>
+      
+      <div className="flex items-center justify-between">
+        {/* MCP Client */}
+        <div className="flex flex-col items-center">
+          <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg">
+            <Bot size={28} />
+          </div>
+          <span className="text-xs font-medium text-gray-600 mt-2">MCP Client</span>
+          <span className="text-xs text-gray-400">(AI Agent)</span>
+        </div>
+        
+        {/* Arrow to PlainID */}
+        <div className="flex-1 flex items-center justify-center px-2">
+          <div className="h-0.5 flex-1 bg-gray-300" />
+          <ArrowRight size={16} className="text-gray-400 mx-1" />
+        </div>
+        
+        {/* PlainID Proxy */}
+        <div className="flex flex-col items-center relative">
+          <div className={`w-20 h-20 rounded-xl flex items-center justify-center text-white shadow-xl transition-all duration-300 ${
+            activeGate ? 'bg-gradient-to-br from-teal-500 to-teal-600 scale-110' : 'bg-gradient-to-br from-teal-600 to-teal-700'
+          }`}>
+            <Shield size={32} />
+          </div>
+          <span className="text-xs font-bold text-teal-700 mt-2">PlainID Proxy</span>
+          <span className="text-xs text-gray-400">(Authorization)</span>
+          
+          {/* Gate indicators */}
+          <div className="absolute -bottom-8 flex space-x-1">
+            <div className={`w-2 h-2 rounded-full transition-all ${activeGate === 1 ? 'bg-teal-500 scale-150' : 'bg-gray-300'}`} />
+            <div className={`w-2 h-2 rounded-full transition-all ${activeGate === 2 ? 'bg-blue-500 scale-150' : 'bg-gray-300'}`} />
+            <div className={`w-2 h-2 rounded-full transition-all ${activeGate === 3 ? 'bg-purple-500 scale-150' : 'bg-gray-300'}`} />
+          </div>
+        </div>
+        
+        {/* Arrow to MCP Server */}
+        <div className="flex-1 flex items-center justify-center px-2">
+          <ArrowRight size={16} className="text-gray-400 mx-1" />
+          <div className="h-0.5 flex-1 bg-gray-300" />
+        </div>
+        
+        {/* MCP Server */}
+        <div className="flex flex-col items-center">
+          <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-green-600 rounded-xl flex items-center justify-center text-white shadow-lg">
+            <Server size={28} />
+          </div>
+          <span className="text-xs font-medium text-gray-600 mt-2">MCP Server</span>
+          <span className="text-xs text-gray-400">(Tools)</span>
+        </div>
+      </div>
+      
+      <p className="text-xs text-gray-500 text-center mt-8 italic">
+        PlainID intercepts all MCP JSON-RPC traffic — the agent only sees what policy permits
+      </p>
     </div>
   );
 };
@@ -527,6 +602,14 @@ export default function PlainIDMCPAuthorizerDemo() {
   const [gate2Result, setGate2Result] = useState(null);
   const [gate3Result, setGate3Result] = useState(null);
   
+  // Determine which gate is active based on current step
+  const getActiveGate = () => {
+    if (currentStep === 3) return 1;
+    if (currentStep === 5) return 2;
+    if (currentStep === 7) return 3;
+    return null;
+  };
+  
   // Add audit entry
   const addAuditEntry = useCallback((event, details) => {
     setAuditLog(prev => [...prev, {
@@ -638,11 +721,19 @@ export default function PlainIDMCPAuthorizerDemo() {
             <h2 className="text-3xl font-bold text-deep-teal mb-4">
               Dynamic Authorization for MCP-Powered Agents
             </h2>
-            <p className="text-xl text-gray-600 mb-8">
+            <p className="text-xl text-gray-600 mb-4">
               Zero-Trust Policy-Based Access Control for the Modern Enterprise
             </p>
-            <p className="text-gray-500 mb-8">
-              Select a role and scenario above, then click "Start Simulation" to see the authorization pipeline in action.
+            
+            {/* NEW: Architecture callout */}
+            <div className="flex justify-center mb-6">
+              <ArchitectureBadge />
+            </div>
+            
+            <p className="text-gray-500 mb-8 max-w-2xl mx-auto">
+              PlainID operates as an <strong>inline proxy</strong> between MCP clients and servers, 
+              intercepting JSON-RPC traffic to enforce authorization at three critical points. 
+              The AI agent never sees tools or data that policy denies.
             </p>
           </div>
         );
@@ -675,6 +766,7 @@ export default function PlainIDMCPAuthorizerDemo() {
         );
         
       case 2:
+        // UPDATED: Enhanced OAuth 2.1 step with better MCP integration explanation
         return (
           <div className="bg-gradient-to-r from-amber-50 to-white p-6 rounded-xl border border-amber-200">
             <div className="flex items-start">
@@ -682,42 +774,77 @@ export default function PlainIDMCPAuthorizerDemo() {
                 <Key size={28} />
               </div>
               <div className="flex-grow">
-                <h4 className="text-lg font-semibold text-deep-teal mb-2">OAuth 2.1 Authentication</h4>
+                <h4 className="text-lg font-semibold text-deep-teal mb-2 flex items-center">
+                  OAuth 2.1 Authentication
+                  <span className="ml-2 text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded">MCP Spec Compliant</span>
+                </h4>
                 <p className="text-gray-600 mb-4">
-                  MCP authorization is built on OAuth 2.1, requiring strict security measures including PKCE protection and audience-restricted tokens.
+                  MCP's authorization framework is built on OAuth 2.1, requiring PKCE protection and audience-restricted tokens. 
+                  PlainID integrates with this flow to add fine-grained authorization beyond authentication.
                 </p>
+                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="bg-white p-4 rounded-lg border border-amber-100">
                     <h5 className="font-medium text-deep-teal mb-2 flex items-center">
-                      <Check size={16} className="text-green-500 mr-2" />
-                      Security Flow
+                      <ShieldCheck size={16} className="text-amber-500 mr-2" />
+                      MCP OAuth 2.1 Flow
                     </h5>
                     <ul className="text-sm text-gray-600 space-y-1">
-                      <li>• Authorization Request with PKCE</li>
-                      <li>• User Authentication & Consent</li>
-                      <li>• Token Request with Code Verifier</li>
-                      <li>• Bearer Token (audience-restricted)</li>
+                      <li className="flex items-center">
+                        <Check size={12} className="text-green-500 mr-2" />
+                        Authorization Request with PKCE
+                      </li>
+                      <li className="flex items-center">
+                        <Check size={12} className="text-green-500 mr-2" />
+                        User Authentication & Consent
+                      </li>
+                      <li className="flex items-center">
+                        <Check size={12} className="text-green-500 mr-2" />
+                        Token Request with Code Verifier
+                      </li>
+                      <li className="flex items-center">
+                        <Check size={12} className="text-green-500 mr-2" />
+                        Audience-restricted Bearer Token
+                      </li>
                     </ul>
                   </div>
                   <div className="bg-white p-4 rounded-lg border border-amber-100">
                     <h5 className="font-medium text-deep-teal mb-2 flex items-center">
                       <Shield size={16} className="text-teal-500 mr-2" />
-                      Token Validated
+                      PlainID Extends OAuth
                     </h5>
-                    <div className="text-sm text-gray-600 space-y-1">
-                      <div className="flex justify-between">
+                    <div className="text-sm text-gray-600 space-y-2">
+                      <p className="text-xs text-gray-500 italic mb-2">
+                        OAuth tells you WHO — PlainID tells you WHAT they can do
+                      </p>
+                      <div className="flex justify-between border-b border-gray-100 pb-1">
                         <span>User ID:</span>
                         <span className="font-mono text-xs">{role.employeeId}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span>Scope:</span>
+                      <div className="flex justify-between border-b border-gray-100 pb-1">
+                        <span>OAuth Scope:</span>
                         <span className="font-mono text-xs">mcp:tools</span>
                       </div>
-                      <div className="flex justify-between">
+                      <div className="flex justify-between border-b border-gray-100 pb-1">
                         <span>Audience:</span>
                         <span className="font-mono text-xs">acme-bank-mcp</span>
                       </div>
+                      <div className="flex justify-between text-teal-700">
+                        <span>PlainID Policy:</span>
+                        <span className="font-mono text-xs">role-based-tool-access</span>
+                      </div>
                     </div>
+                  </div>
+                </div>
+                
+                {/* NEW: OAuth + PlainID integration note */}
+                <div className="mt-4 bg-teal-50 p-3 rounded-lg border border-teal-200">
+                  <div className="flex items-start">
+                    <Info size={16} className="text-teal-600 mr-2 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-teal-800">
+                      <strong>Integration point:</strong> PlainID validates the OAuth token and extracts identity claims, 
+                      then applies dynamic policies based on user attributes, agent context, and resource sensitivity.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -726,6 +853,7 @@ export default function PlainIDMCPAuthorizerDemo() {
         );
         
       case 3:
+        // UPDATED: Gate 1 with clear "agent never sees hidden tools" messaging
         const gate1 = gate1Result || evaluateGate1(selectedRole);
         return (
           <div className="bg-gradient-to-r from-teal-50 to-white p-6 rounded-xl border-l-4 border-teal-500">
@@ -739,36 +867,55 @@ export default function PlainIDMCPAuthorizerDemo() {
                   <DecisionBadge decision={outcome.gate1 === 'permit' ? 'FILTER' : 'DENY'} />
                 </div>
                 
-                <p className="text-gray-600 mb-4">
-                  PlainID filters the MCP tool list based on user role and permissions before exposing to the AI agent.
-                </p>
+                {/* NEW: Clear explanation that agent never sees hidden tools */}
+                <div className="bg-teal-100 p-3 rounded-lg border border-teal-200 mb-4">
+                  <div className="flex items-start">
+                    <EyeOff size={16} className="text-teal-700 mr-2 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-teal-800">
+                      <strong>Key security principle:</strong> The AI agent <em>only receives</em> the filtered tool list. 
+                      Unauthorized tools are never exposed — not filtered after-the-fact, but completely invisible to the agent.
+                    </p>
+                  </div>
+                </div>
                 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <div>
-                    <div className="text-sm font-medium text-gray-600 mb-2">MCP Server Response (All Tools)</div>
-                    <JsonViewer 
-                      data={{
-                        jsonrpc: "2.0",
-                        id: 1,
-                        result: {
-                          tools: getAllTools().slice(0, 5).map(t => t.name)
-                        }
-                      }}
-                      maxHeight="150px"
-                    />
+                    <div className="text-sm font-medium text-gray-600 mb-2 flex items-center">
+                      <Server size={14} className="mr-1 text-gray-400" />
+                      MCP Server Has ({getAllTools().length} tools)
+                    </div>
+                    <div className="bg-gray-100 rounded-lg p-4 border border-gray-200">
+                      <div className="text-xs text-gray-500 mb-2">Full tool inventory (not sent to agent):</div>
+                      <div className="flex flex-wrap gap-1">
+                        {getAllTools().map(t => (
+                          <span 
+                            key={t.name}
+                            className={`text-xs px-2 py-0.5 rounded ${
+                              gate1.filteredTools.some(ft => ft.name === t.name)
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-red-100 text-red-800 line-through'
+                            }`}
+                          >
+                            {t.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                   <div>
-                    <div className="text-sm font-medium text-gray-600 mb-2">Filtered by PlainID</div>
+                    <div className="text-sm font-medium text-gray-600 mb-2 flex items-center">
+                      <Bot size={14} className="mr-1 text-teal-500" />
+                      Agent Receives ({gate1.filteredCount} tools)
+                    </div>
                     <JsonViewer 
                       data={{
                         jsonrpc: "2.0",
                         id: 1,
                         result: {
-                          tools: gate1.filteredTools.map(t => t.name)
-                        },
-                        _plainid: {
-                          filtered: gate1.removedCount,
-                          policy: "role-based-tool-access"
+                          tools: gate1.filteredTools.map(t => ({
+                            name: t.name,
+                            description: t.description
+                          }))
                         }
                       }}
                       maxHeight="150px"
@@ -778,11 +925,12 @@ export default function PlainIDMCPAuthorizerDemo() {
                 
                 {gate1.removedTools.length > 0 && (
                   <div className="mt-4 bg-yellow-50 p-3 rounded-lg border border-yellow-200">
-                    <div className="text-sm font-medium text-yellow-800 mb-1">
-                      {gate1.removedCount} tools removed by policy
+                    <div className="text-sm font-medium text-yellow-800 mb-1 flex items-center">
+                      <Lock size={14} className="mr-1" />
+                      {gate1.removedCount} tools hidden from agent by policy
                     </div>
                     <div className="text-xs text-yellow-700">
-                      {gate1.removedTools.slice(0, 3).map(t => t.name).join(', ')}
+                      These tools exist but are invisible to the agent: {gate1.removedTools.slice(0, 3).map(t => t.name).join(', ')}
                       {gate1.removedTools.length > 3 && ` +${gate1.removedTools.length - 3} more`}
                     </div>
                   </div>
@@ -803,7 +951,8 @@ export default function PlainIDMCPAuthorizerDemo() {
               <div className="flex-grow">
                 <h4 className="text-lg font-semibold text-deep-teal mb-2">AI Agent Tool Selection</h4>
                 <p className="text-gray-600 mb-4">
-                  The Enterprise AI Assistant analyzes the request and selects the appropriate tool from the filtered list.
+                  The Enterprise AI Assistant analyzes the request and selects from its <strong>visible</strong> tool list 
+                  (already filtered by Gate 1).
                 </p>
                 
                 {toolAvailable ? (
@@ -830,12 +979,13 @@ export default function PlainIDMCPAuthorizerDemo() {
                   </div>
                 ) : (
                   <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-                    <div className="flex items-center text-red-700">
+                    <div className="flex items-center text-red-700 mb-2">
                       <XCircle size={18} className="mr-2" />
-                      <span className="font-medium">Tool Not Available</span>
+                      <span className="font-medium">Tool Not in Agent's Visible List</span>
                     </div>
-                    <p className="text-sm text-red-600 mt-2">
-                      The requested tool "{scenario.tool}" is not in the filtered tool list for role "{role.name}".
+                    <p className="text-sm text-red-600">
+                      The agent cannot attempt to use "{scenario.tool}" because it was never exposed in the filtered tool list.
+                      The agent will respond that it cannot perform this action.
                     </p>
                   </div>
                 )}
@@ -867,7 +1017,8 @@ export default function PlainIDMCPAuthorizerDemo() {
                 </div>
                 
                 <p className="text-gray-600 mb-4">
-                  PlainID validates the specific tool call with parameter-level authorization checks.
+                  PlainID intercepts the <code className="bg-gray-100 px-1 rounded">tools/call</code> request and validates 
+                  parameters, scope boundaries, and amount limits before forwarding to the MCP server.
                 </p>
                 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -930,9 +1081,9 @@ export default function PlainIDMCPAuthorizerDemo() {
               <div className="text-gray-400 mb-4">
                 <X size={48} className="mx-auto" />
               </div>
-              <h4 className="text-lg font-semibold text-gray-600 mb-2">Execution Skipped</h4>
+              <h4 className="text-lg font-semibold text-gray-600 mb-2">Execution Blocked by PlainID Proxy</h4>
               <p className="text-gray-500">
-                Tool execution was not performed due to authorization denial in Gate 2.
+                The <code className="bg-gray-200 px-1 rounded">tools/call</code> request was not forwarded to the MCP server.
               </p>
             </div>
           );
@@ -947,7 +1098,7 @@ export default function PlainIDMCPAuthorizerDemo() {
               <div className="flex-grow">
                 <h4 className="text-lg font-semibold text-deep-teal mb-2">MCP Server Execution</h4>
                 <p className="text-gray-600 mb-4">
-                  The MCP Server executes the authorized tool and returns the raw response.
+                  PlainID proxy forwards the authorized request to the MCP server. The server executes and returns raw results.
                 </p>
                 
                 <div className="bg-white p-4 rounded-lg border border-green-100">
@@ -961,7 +1112,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                       id: 2,
                       result: outcome.response
                     }}
-                    title="MCP Response (Raw)"
+                    title="MCP Response (Raw - before Gate 3)"
                     maxHeight="200px"
                   />
                 </div>
@@ -999,12 +1150,15 @@ export default function PlainIDMCPAuthorizerDemo() {
                 </div>
                 
                 <p className="text-gray-600 mb-4">
-                  PlainID masks sensitive data in the response based on user and agent permissions.
+                  PlainID proxy intercepts the MCP server response and applies data masking before forwarding to the agent.
                 </p>
                 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   <div>
-                    <div className="text-sm font-medium text-gray-600 mb-2">Raw Response</div>
+                    <div className="text-sm font-medium text-gray-600 mb-2 flex items-center">
+                      <Server size={14} className="mr-1 text-red-400" />
+                      From MCP Server (Raw)
+                    </div>
                     <div className="bg-red-50 rounded-lg p-4 border border-red-200">
                       <pre className="text-xs font-mono overflow-auto max-h-40">
                         {JSON.stringify(outcome.response, null, 2)}
@@ -1017,7 +1171,10 @@ export default function PlainIDMCPAuthorizerDemo() {
                     </div>
                   </div>
                   <div>
-                    <div className="text-sm font-medium text-gray-600 mb-2">Masked Response</div>
+                    <div className="text-sm font-medium text-gray-600 mb-2 flex items-center">
+                      <Bot size={14} className="mr-1 text-green-500" />
+                      To Agent (Masked)
+                    </div>
                     <div className="bg-green-50 rounded-lg p-4 border border-green-200">
                       <pre className="text-xs font-mono overflow-auto max-h-40">
                         {JSON.stringify(gate3.maskedResponse, null, 2)}
@@ -1031,7 +1188,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                 
                 {gate3.maskedFields.length > 0 && (
                   <div className="mt-4 bg-purple-50 p-3 rounded-lg border border-purple-200">
-                    <div className="text-sm font-medium text-purple-800 mb-2">Fields Masked:</div>
+                    <div className="text-sm font-medium text-purple-800 mb-2">Fields Masked by PlainID Proxy:</div>
                     <div className="space-y-1">
                       {gate3.maskedFields.map((field, idx) => (
                         <div key={idx} className="text-xs text-purple-700 flex items-center">
@@ -1070,8 +1227,8 @@ export default function PlainIDMCPAuthorizerDemo() {
                 {outcome.finalResult === 'success' ? (
                   <>
                     <p className="text-gray-600 mb-4">
-                      The secure MCP authorization pipeline has completed. The response has been verified
-                      and masked according to your permissions.
+                      The PlainID proxy has completed all authorization checks. The policy-compliant response 
+                      is delivered to the AI agent and then to the user.
                     </p>
                     <div className="bg-white p-4 rounded-lg border border-green-200">
                       <div className="flex items-center mb-3">
@@ -1087,7 +1244,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                 ) : (
                   <>
                     <p className="text-gray-600 mb-4">
-                      The request was denied by PlainID's authorization controls. 
+                      The request was blocked by PlainID's authorization proxy. 
                       {outcome.reason && ` Reason: ${outcome.reason}`}
                     </p>
                     <div className="bg-red-100 p-4 rounded-lg border border-red-200">
@@ -1162,7 +1319,7 @@ export default function PlainIDMCPAuthorizerDemo() {
             </div>
             <div>
               <h3 className="text-xl font-semibold text-gray-900">Without PlainID</h3>
-              <p className="text-sm text-gray-500">Standard MCP - No Authorization</p>
+              <p className="text-sm text-gray-500">Standard MCP - No Authorization Proxy</p>
             </div>
           </div>
           
@@ -1182,7 +1339,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                   <span className="text-sm">All 12 tools exposed to all users</span>
                 </div>
                 <div className="text-xs text-red-600">
-                  No role-based filtering applied
+                  Agent sees everything — no filtering
                 </div>
               </div>
             </div>
@@ -1195,7 +1352,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                   <span className="text-sm">No parameter-level authorization</span>
                 </div>
                 <div className="text-xs text-red-600">
-                  Any authenticated user can call any tool
+                  Any authenticated user can call any tool with any parameters
                 </div>
               </div>
             </div>
@@ -1234,7 +1391,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                 With PlainID
                 <AlphaTag />
               </h3>
-              <p className="text-sm text-gray-500">Dynamic Authorization for MCP</p>
+              <p className="text-sm text-gray-500">Inline Authorization Proxy for MCP</p>
             </div>
           </div>
           
@@ -1256,13 +1413,13 @@ export default function PlainIDMCPAuthorizerDemo() {
                   <Check size={14} className="mr-1" />
                   <span className="text-sm">
                     {outcome.gate1 === 'permit' 
-                      ? `${evaluateGate1(selectedRole).filteredCount} tools available for ${role.name}`
-                      : 'Tool not available for this role'
+                      ? `Agent only sees ${evaluateGate1(selectedRole).filteredCount} permitted tools`
+                      : 'Tool completely hidden from agent'
                     }
                   </span>
                 </div>
                 <div className="text-xs text-teal-600">
-                  Policy: role-based-tool-access
+                  Unauthorized tools are never exposed
                 </div>
               </div>
             </div>
@@ -1286,8 +1443,8 @@ export default function PlainIDMCPAuthorizerDemo() {
                   }
                   <span className="text-sm">
                     {outcome.gate2 === 'permit' 
-                      ? 'Execution authorized with scope checks'
-                      : outcome.reason || 'Execution denied'
+                      ? 'Proxy validates scope and parameters'
+                      : outcome.reason || 'Blocked by proxy'
                     }
                   </span>
                 </div>
@@ -1315,8 +1472,8 @@ export default function PlainIDMCPAuthorizerDemo() {
                   <p className="text-purple-700 text-xs flex items-center">
                     <Shield size={12} className="mr-1" />
                     {outcome.finalResult === 'success' 
-                      ? 'SSN masked, policy-compliant response'
-                      : 'Access denied by policy'
+                      ? 'SSN masked by proxy before reaching agent'
+                      : 'Blocked by proxy — no data exposed'
                     }
                   </p>
                 </div>
@@ -1337,7 +1494,7 @@ export default function PlainIDMCPAuthorizerDemo() {
             Security Incident Prevention
           </h2>
           <p className="text-gray-600">
-            See how PlainID prevents real-world MCP security incidents
+            See how PlainID's inline proxy prevents real-world MCP security incidents
           </p>
         </div>
         
@@ -1364,7 +1521,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                 </div>
                 
                 <div className="bg-green-50 p-3 rounded-lg border border-green-200">
-                  <div className="text-xs font-medium text-green-800 mb-1">With PlainID:</div>
+                  <div className="text-xs font-medium text-green-800 mb-1">With PlainID Proxy:</div>
                   <div className="text-xs text-green-700">{incident.with_plainid.outcome}</div>
                 </div>
               </div>
@@ -1389,7 +1546,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                 PlainID MCP Authorizer
                 <AlphaTag />
               </h1>
-              <p className="text-xs text-gray-500">Dynamic Authorization for MCP-Powered Agents</p>
+              <p className="text-xs text-gray-500">Inline Proxy for Dynamic MCP Authorization</p>
             </div>
           </div>
           <div className="flex space-x-3">
@@ -1425,6 +1582,9 @@ export default function PlainIDMCPAuthorizerDemo() {
           renderComparisonView()
         ) : (
           <>
+            {/* NEW: Proxy Architecture Diagram */}
+            <ProxyArchitectureDiagram activeGate={getActiveGate()} />
+            
             {/* Configuration Panel */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1476,7 +1636,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                   <h3 className="text-lg font-semibold text-deep-teal">MCP Authorization Pipeline</h3>
                   <p className="text-sm text-gray-500">
                     {currentStep === 0 
-                      ? 'Click "Start Simulation" to see the authorization flow'
+                      ? 'Click "Start Simulation" to see the proxy-based authorization flow'
                       : PIPELINE_STEPS[currentStep].description
                     }
                   </p>
@@ -1539,7 +1699,7 @@ export default function PlainIDMCPAuthorizerDemo() {
                     <span className="w-2 h-2 bg-teal-500 rounded-full animate-bounce animation-delay-100" />
                     <span className="w-2 h-2 bg-teal-500 rounded-full animate-bounce animation-delay-200" />
                   </div>
-                  <span className="text-sm font-medium">Processing...</span>
+                  <span className="text-sm font-medium">Processing through PlainID proxy...</span>
                 </div>
               )}
             </div>
@@ -1566,15 +1726,15 @@ export default function PlainIDMCPAuthorizerDemo() {
                   PlainID MCP Authorizer
                   <AlphaTag />
                 </p>
-                <p className="text-sm text-gray-300">Zero-Trust Authorization for AI Agents</p>
+                <p className="text-sm text-gray-300">Inline Proxy for Zero-Trust AI Authorization</p>
               </div>
             </div>
             <div className="flex gap-3">
               <span className="text-sm px-4 py-2 bg-teal-500 bg-opacity-20 rounded-lg font-medium">
-                Policy-Based Access
+                Proxy Architecture
               </span>
               <span className="text-sm px-4 py-2 bg-teal-500 bg-opacity-20 rounded-lg font-medium">
-                MCP Security
+                OAuth 2.1 Integration
               </span>
               <span className="text-sm px-4 py-2 bg-teal-500 bg-opacity-20 rounded-lg font-medium">
                 Dynamic Authorization
