@@ -716,7 +716,7 @@ a:hover {
   background: var(--terminal-bg);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  min-height: 500px;
+  height: 500px;
   display: flex;
   flex-direction: column;
 }
