@@ -538,7 +538,44 @@ class SoundSystem {
   }
 
   playKeyClick() {
-    this.playTone(800, 0.015, 'square', 0.03);
+    if (!this.enabled || !this.audioContext) return;
+    
+    try {
+      // Add ±10% variation for organic feel
+      const variation = 0.9 + Math.random() * 0.2;
+      const volumeVariation = 0.9 + Math.random() * 0.2;
+      
+      // Layer 1: Short noise burst (the "click")
+      const noiseLength = this.audioContext.sampleRate * 0.008; // 8ms
+      const noiseBuffer = this.audioContext.createBuffer(1, noiseLength, this.audioContext.sampleRate);
+      const noiseData = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < noiseLength; i++) {
+        // Quick decay envelope
+        const envelope = 1 - (i / noiseLength);
+        noiseData[i] = (Math.random() * 2 - 1) * envelope * envelope;
+      }
+      const noiseSource = this.audioContext.createBufferSource();
+      const noiseGain = this.audioContext.createGain();
+      noiseSource.buffer = noiseBuffer;
+      noiseSource.connect(noiseGain);
+      noiseGain.connect(this.audioContext.destination);
+      noiseGain.gain.value = 0.04 * volumeVariation;
+      noiseSource.start();
+      
+      // Layer 2: Low frequency "thunk" (the mechanical feel)
+      const thunk = this.audioContext.createOscillator();
+      const thunkGain = this.audioContext.createGain();
+      thunk.connect(thunkGain);
+      thunkGain.connect(this.audioContext.destination);
+      thunk.frequency.value = 150 * variation;
+      thunk.type = 'sine';
+      thunkGain.gain.value = 0.03 * volumeVariation;
+      thunk.start();
+      thunkGain.gain.exponentialRampToValueAtTime(0.001, this.audioContext.currentTime + 0.015);
+      thunk.stop(this.audioContext.currentTime + 0.015);
+    } catch (e) {
+      // Ignore audio errors
+    }
   }
 
   playGateStart() {
