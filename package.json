@@ -1,9 +1,9 @@
 {
-  "name": "plainid-mcp-authorizer-demo",
+  "name": "plainid-edge-mcp-gateway-demo",
   "version": "1.1.0",
   "private": true,
-  "description": "Dynamic Authorization for MCP-Powered Agents - Zero-Trust Policy-Based Access Control via Inline Proxy",
-  "keywords": ["plainid", "mcp", "authorization", "ai-security", "pbac", "zero-trust", "proxy"],
+  "description": "PlainID Edge — MCP Gateway: dynamic, policy-based authorization for MCP-powered AI agents. Zero-trust access control enforced inline between agents and MCP servers.",
+  "keywords": ["plainid", "plainid-edge", "mcp-gateway", "mcp", "authorization", "ai-security", "pbac", "zero-trust", "agentic-ai", "guardrails"],
   "homepage": "https://mcp.plainid-demo.com",
   "dependencies": {
     "lucide-react": "^0.263.1",
