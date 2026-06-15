@@ -1,9 +1,18 @@
-// Role definitions with permissions matrix
+// Identities (Dynamic Groups) and their MCP tool permissions.
+//
+// In PlainID, an Identity is *who* initiates an interaction — a human user or a
+// non-human identity (NHI) such as a service account — resolved from an IdP as a
+// Dynamic Group. Identities never access tools or data directly: an Agent acts on
+// their behalf, and every tool/parameter/response is authorized by policy.
+//
+// The three identities below are modeled as Dynamic Groups for the Acme Bank demo.
 export const roles = {
   teller: {
     id: 'teller',
     name: 'Bank Teller',
     access: 'Basic Access',
+    identityType: 'human',
+    dynamicGroup: 'acme-tellers',
     employeeId: 'E-1234',
     branch: 'Central',
     clearance: 'standard',
@@ -38,6 +47,8 @@ export const roles = {
     id: 'loan_officer',
     name: 'Loan Officer',
     access: 'Limited Access',
+    identityType: 'human',
+    dynamicGroup: 'acme-loan-officers',
     employeeId: 'E-5678',
     branch: 'Central',
     clearance: 'elevated',
@@ -73,6 +84,8 @@ export const roles = {
     id: 'branch_manager',
     name: 'Branch Manager',
     access: 'Full Access',
+    identityType: 'human',
+    dynamicGroup: 'acme-branch-managers',
     employeeId: 'E-9012',
     branch: 'Central',
     clearance: 'executive',
