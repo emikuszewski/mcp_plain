@@ -1,4 +1,4 @@
-// Real-world MCP security incidents and how PlainID prevents them
+// Real-world MCP security incidents and how PlainID Edge prevents them
 export const incidents = [
   {
     id: 'asana_cross_tenant',
@@ -21,17 +21,17 @@ export const incidents = [
       risk: 'Data breach, compliance violation, customer trust erosion',
     },
     with_plainid: {
-      title: 'With PlainID',
-      description: 'PlainID proxy validates tenant context before forwarding to MCP server',
-      policies_applied: ['tenant-isolation', 'resource-boundary-enforcement'],
-      outcome: 'Request blocked by proxy — tenant mismatch detected',
+      title: 'With PlainID Edge',
+      description: 'The MCP Gateway validates identity and tenant context before forwarding the call',
+      policies_applied: ['tenant-isolation', 'branch-scope-condition'],
+      outcome: 'Request blocked at the MCP Gateway — tenant mismatch detected',
       protection: 'Zero cross-tenant data exposure',
     },
     simulation_scenario: {
       query: 'Show me account details for customer #99999',
       user_tenant: 'acme-corp',
       resource_tenant: 'other-corp',
-      gate: 2,
+      stage: 'mcp_control',
       decision: 'DENY',
       policy: 'tenant-isolation',
       reason: 'Resource tenant "other-corp" does not match user tenant "acme-corp"',
@@ -60,18 +60,18 @@ export const incidents = [
       risk: 'Privacy violation, regulatory penalties, data misuse',
     },
     with_plainid: {
-      title: 'With PlainID',
-      description: 'PlainID proxy intercepts response and masks sensitive data before forwarding to agent',
-      policies_applied: ['pii-masking', 'response-sanitization'],
-      outcome: 'Sensitive fields automatically redacted based on user/agent permissions',
+      title: 'With PlainID Edge',
+      description: 'Output guardrails mask sensitive fields before the response reaches the agent',
+      policies_applied: ['output-guardrails', 'pii-masking'],
+      outcome: 'Sensitive fields redacted by output guardrails per identity and agent permissions',
       protection: 'SSN, account numbers, and confidential data masked',
     },
     simulation_scenario: {
       query: 'Get full customer profile for #12345',
       sensitive_fields: ['ssn', 'account_number', 'credit_score'],
-      gate: 3,
+      stage: 'output_guardrail',
       decision: 'MASK',
-      policy: 'pii-masking',
+      policy: 'output-guardrail-pii',
       masked_response: {
         ssn: 'XXX-XX-6789',
         account_number: '****4567',
@@ -101,21 +101,21 @@ export const incidents = [
       risk: 'Privilege escalation, unauthorized actions, data exposure',
     },
     with_plainid: {
-      title: 'With PlainID',
-      description: 'PlainID proxy filters tools/list response — agent only sees permitted tools',
-      policies_applied: ['role-based-tool-access', 'principle-of-least-privilege'],
-      outcome: 'Users only see tools they are authorized to use',
-      protection: 'Admin tools completely invisible to non-admin users',
+      title: 'With PlainID Edge',
+      description: 'The MCP Gateway enforces least-privileged tool access — agents can invoke only explicitly granted tools',
+      policies_applied: ['mcp-tool-control', 'least-privileged-access'],
+      outcome: 'Agents can invoke only explicitly granted tools; everything else is denied by default',
+      protection: 'Admin tools never granted to non-admin identities',
     },
     simulation_scenario: {
       query: 'List all available tools',
       user_role: 'teller',
       all_tools: 12,
-      visible_tools: 3,
-      hidden_tools: ['approve_loan', 'transfer_funds', 'override_transaction_limit', 'get_employee_records'],
-      gate: 1,
-      decision: 'FILTER',
-      policy: 'role-based-tool-access',
+      granted_tools: 3,
+      ungranted_tools: ['approve_loan', 'transfer_funds', 'override_transaction_limit', 'get_employee_records'],
+      stage: 'mcp_control',
+      decision: 'DENY_BY_DEFAULT',
+      policy: 'mcp-tool-control',
     }
   }
 ];
