@@ -1,5 +1,5 @@
 /* =============================================================================
-   PlainID MCP Authorizer - Editorial Design
+   PlainID Edge — MCP Gateway · Editorial Design
    Light mode, Space Grotesk typography, clean terminal UX
    ============================================================================= */
 
@@ -433,22 +433,22 @@ a:hover {
   z-index: 1;
 }
 
-.step-marker.user {
+.step-marker.identity {
   background: var(--text-primary);
   color: white;
 }
 
-.step-marker.gate1 {
+.step-marker.input {
   background: var(--teal-light);
   color: var(--teal);
 }
 
-.step-marker.gate2 {
+.step-marker.control {
   background: var(--teal-light);
   color: var(--teal);
 }
 
-.step-marker.gate3 {
+.step-marker.output {
   background: var(--amber-light);
   color: var(--amber);
 }
@@ -858,13 +858,8 @@ a:hover {
   to { transform: scale(1); opacity: 1; }
 }
 
-.tag-gate1,
-.tag-gate2,
-.tag-gate3 {
-  background: rgba(0, 167, 181, 0.2);
-  color: #4DD0E1;
-}
-
+.tag-mcpcontrol,
+.tag-inputguardrail,
 .tag-pass,
 .tag-done {
   background: rgba(0, 167, 181, 0.2);
@@ -876,7 +871,8 @@ a:hover {
   color: #EF5350;
 }
 
-.tag-mask {
+.tag-mask,
+.tag-outputguardrail {
   background: rgba(245, 158, 11, 0.2);
   color: #FFB74D;
 }
