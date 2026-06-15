@@ -34,8 +34,14 @@ const scenarios = [
   {
     id: 'admin_override',
     name: 'Override Limits',
-    description: 'Override transaction limits — shows admin tool hiding',
+    description: 'Override transaction limits — shows admin tool restriction',
     tool: 'override_transaction_limit',
+  },
+  {
+    id: 'restricted_query',
+    name: 'HR / Compensation Query',
+    description: 'Ask about employee pay — shows input guardrails',
+    tool: 'get_employee_records',
   },
 ];
 
@@ -45,10 +51,16 @@ const outcomeMatrix = {
   cross_branch: { teller: 'denied', loan_officer: 'denied', branch_manager: 'success' },
   loan_approval: { teller: 'denied', loan_officer: 'denied', branch_manager: 'success' },
   admin_override: { teller: 'denied', loan_officer: 'denied', branch_manager: 'denied' },
+  restricted_query: { teller: 'denied', loan_officer: 'denied', branch_manager: 'success' },
 };
 
 // ============================================================================
 // TERMINAL OUTPUT TEMPLATES
+//
+// Stage tags map to the PlainID Edge policy model:
+//   INPUT GUARDRAIL  — screens the prompt's intent before the agent runs
+//   MCP CONTROL      — authorizes the tool and its parameters (deny by default)
+//   OUTPUT GUARDRAIL — masks sensitive fields before the response returns
 // ============================================================================
 
 const terminalOutputs = {
@@ -60,13 +72,13 @@ const terminalOutputs = {
         { type: 'context', text: '  User: Bank Teller (E-1234) | Branch: Central' },
         { type: 'context', text: '  Target: Account #12345' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 1', text: 'Tool discovery filter' },
-        { type: 'context', text: '  Policy: role-based-tool-access' },
-        { type: 'context', text: '  Checking tool visibility for role "teller"...' },
-        { type: 'decision', tag: 'PASS', text: 'Tool visible (3 of 12 permitted)' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Checking tool grant for "teller"...' },
+        { type: 'decision', tag: 'PASS', text: 'Tool permitted (3 of 12 granted)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 2', text: 'Execution authorization' },
-        { type: 'context', text: '  Policy: branch-boundary-enforcement' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Parameter & scope check' },
+        { type: 'context', text: '  Policy: branch-scope-condition' },
         { type: 'context', text: '  Checking: user.branch == resource.branch' },
         { type: 'context', text: '  Central == Central' },
         { type: 'decision', tag: 'PASS', text: 'Scope validated' },
@@ -74,8 +86,8 @@ const terminalOutputs = {
         { type: 'forward', text: '→ Forwarding to MCP server...' },
         { type: 'response', text: '← Response received (186 bytes)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 3', text: 'Response masking' },
-        { type: 'context', text: '  Policy: pii-masking' },
+        { type: 'gate', tag: 'OUTPUT GUARDRAIL', text: 'Sensitive-data masking' },
+        { type: 'context', text: '  Policy: output-guardrail (PII)' },
         { type: 'context', text: '  Scanning response fields...' },
         { type: 'context', text: '  Field "ssn" contains PII' },
         { type: 'mask', tag: 'MASK', text: 'ssn: 123-45-6789', transform: 'XXX-XX-6789' },
@@ -85,15 +97,15 @@ const terminalOutputs = {
       raw: [
         { text: '[2025-01-07T14:23:01.234Z] REQ  tool=get_account_details user=E-1234 role=teller branch=central' },
         { text: '[2025-01-07T14:23:01.235Z] CTX  target_account=12345 target_branch=central' },
-        { text: '[2025-01-07T14:23:01.238Z] G1   policy=role-based-tool-access' },
-        { text: '[2025-01-07T14:23:01.240Z] G1   decision=PERMIT tools_visible=3 tools_total=12' },
-        { text: '[2025-01-07T14:23:01.245Z] G2   policy=branch-boundary-enforcement' },
-        { text: '[2025-01-07T14:23:01.248Z] G2   check=branch_match user_branch=central resource_branch=central' },
-        { text: '[2025-01-07T14:23:01.250Z] G2   decision=PERMIT' },
+        { text: '[2025-01-07T14:23:01.238Z] MC   policy=mcp-tool-control' },
+        { text: '[2025-01-07T14:23:01.240Z] MC   decision=PERMIT tools_granted=3 tools_total=12' },
+        { text: '[2025-01-07T14:23:01.245Z] MC   policy=branch-scope-condition' },
+        { text: '[2025-01-07T14:23:01.248Z] MC   check=branch_match user_branch=central resource_branch=central' },
+        { text: '[2025-01-07T14:23:01.250Z] MC   decision=PERMIT' },
         { text: '[2025-01-07T14:23:01.312Z] FWD  endpoint=mcp://acme-bank/account-management' },
         { text: '[2025-01-07T14:23:01.456Z] RSP  status=200 bytes=186' },
-        { text: '[2025-01-07T14:23:01.458Z] G3   policy=pii-masking' },
-        { text: '[2025-01-07T14:23:01.460Z] G3   field=ssn action=MASK original=123-45-6789 masked=XXX-XX-6789' },
+        { text: '[2025-01-07T14:23:01.458Z] OG   policy=output-guardrail-pii' },
+        { text: '[2025-01-07T14:23:01.460Z] OG   field=ssn action=MASK original=123-45-6789 masked=XXX-XX-6789' },
         { text: '[2025-01-07T14:23:01.462Z] DONE result=SUCCESS fields_masked=1' },
       ],
       withoutNote: 'SSN "123-45-6789" would be returned in plain text. No masking applied.',
@@ -104,13 +116,13 @@ const terminalOutputs = {
         { type: 'context', text: '  User: Loan Officer (E-5678) | Branch: Central' },
         { type: 'context', text: '  Target: Account #12345' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 1', text: 'Tool discovery filter' },
-        { type: 'context', text: '  Policy: role-based-tool-access' },
-        { type: 'context', text: '  Checking tool visibility for role "loan_officer"...' },
-        { type: 'decision', tag: 'PASS', text: 'Tool visible (7 of 12 permitted)' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Checking tool grant for "loan_officer"...' },
+        { type: 'decision', tag: 'PASS', text: 'Tool permitted (7 of 12 granted)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 2', text: 'Execution authorization' },
-        { type: 'context', text: '  Policy: branch-boundary-enforcement' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Parameter & scope check' },
+        { type: 'context', text: '  Policy: branch-scope-condition' },
         { type: 'context', text: '  Checking: user.branch == resource.branch' },
         { type: 'context', text: '  Central == Central' },
         { type: 'decision', tag: 'PASS', text: 'Scope validated' },
@@ -118,8 +130,8 @@ const terminalOutputs = {
         { type: 'forward', text: '→ Forwarding to MCP server...' },
         { type: 'response', text: '← Response received (186 bytes)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 3', text: 'Response masking' },
-        { type: 'context', text: '  Policy: pii-masking' },
+        { type: 'gate', tag: 'OUTPUT GUARDRAIL', text: 'Sensitive-data masking' },
+        { type: 'context', text: '  Policy: output-guardrail (PII)' },
         { type: 'context', text: '  Scanning response fields...' },
         { type: 'context', text: '  Field "ssn" contains PII' },
         { type: 'mask', tag: 'MASK', text: 'ssn: 123-45-6789', transform: 'XXX-XX-6789' },
@@ -129,15 +141,15 @@ const terminalOutputs = {
       raw: [
         { text: '[2025-01-07T14:23:01.234Z] REQ  tool=get_account_details user=E-5678 role=loan_officer branch=central' },
         { text: '[2025-01-07T14:23:01.235Z] CTX  target_account=12345 target_branch=central' },
-        { text: '[2025-01-07T14:23:01.238Z] G1   policy=role-based-tool-access' },
-        { text: '[2025-01-07T14:23:01.240Z] G1   decision=PERMIT tools_visible=7 tools_total=12' },
-        { text: '[2025-01-07T14:23:01.245Z] G2   policy=branch-boundary-enforcement' },
-        { text: '[2025-01-07T14:23:01.248Z] G2   check=branch_match user_branch=central resource_branch=central' },
-        { text: '[2025-01-07T14:23:01.250Z] G2   decision=PERMIT' },
+        { text: '[2025-01-07T14:23:01.238Z] MC   policy=mcp-tool-control' },
+        { text: '[2025-01-07T14:23:01.240Z] MC   decision=PERMIT tools_granted=7 tools_total=12' },
+        { text: '[2025-01-07T14:23:01.245Z] MC   policy=branch-scope-condition' },
+        { text: '[2025-01-07T14:23:01.248Z] MC   check=branch_match user_branch=central resource_branch=central' },
+        { text: '[2025-01-07T14:23:01.250Z] MC   decision=PERMIT' },
         { text: '[2025-01-07T14:23:01.312Z] FWD  endpoint=mcp://acme-bank/account-management' },
         { text: '[2025-01-07T14:23:01.456Z] RSP  status=200 bytes=186' },
-        { text: '[2025-01-07T14:23:01.458Z] G3   policy=pii-masking' },
-        { text: '[2025-01-07T14:23:01.460Z] G3   field=ssn action=MASK original=123-45-6789 masked=XXX-XX-6789' },
+        { text: '[2025-01-07T14:23:01.458Z] OG   policy=output-guardrail-pii' },
+        { text: '[2025-01-07T14:23:01.460Z] OG   field=ssn action=MASK original=123-45-6789 masked=XXX-XX-6789' },
         { text: '[2025-01-07T14:23:01.462Z] DONE result=SUCCESS fields_masked=1' },
       ],
       withoutNote: 'SSN "123-45-6789" would be returned in plain text. No masking applied.',
@@ -148,13 +160,13 @@ const terminalOutputs = {
         { type: 'context', text: '  User: Branch Manager (E-9012) | Branch: Central' },
         { type: 'context', text: '  Target: Account #12345' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 1', text: 'Tool discovery filter' },
-        { type: 'context', text: '  Policy: role-based-tool-access' },
-        { type: 'context', text: '  Checking tool visibility for role "branch_manager"...' },
-        { type: 'decision', tag: 'PASS', text: 'Tool visible (11 of 12 permitted)' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Checking tool grant for "branch_manager"...' },
+        { type: 'decision', tag: 'PASS', text: 'Tool permitted (11 of 12 granted)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 2', text: 'Execution authorization' },
-        { type: 'context', text: '  Policy: branch-boundary-enforcement' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Parameter & scope check' },
+        { type: 'context', text: '  Policy: branch-scope-condition' },
         { type: 'context', text: '  Checking: user.branch == resource.branch' },
         { type: 'context', text: '  Central == Central' },
         { type: 'decision', tag: 'PASS', text: 'Scope validated' },
@@ -162,8 +174,8 @@ const terminalOutputs = {
         { type: 'forward', text: '→ Forwarding to MCP server...' },
         { type: 'response', text: '← Response received (186 bytes)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 3', text: 'Response masking' },
-        { type: 'context', text: '  Policy: pii-masking' },
+        { type: 'gate', tag: 'OUTPUT GUARDRAIL', text: 'Sensitive-data masking' },
+        { type: 'context', text: '  Policy: output-guardrail (PII)' },
         { type: 'context', text: '  Scanning response fields...' },
         { type: 'context', text: '  Field "ssn" contains PII' },
         { type: 'mask', tag: 'MASK', text: 'ssn: 123-45-6789', transform: 'XXX-XX-6789' },
@@ -173,15 +185,15 @@ const terminalOutputs = {
       raw: [
         { text: '[2025-01-07T14:23:01.234Z] REQ  tool=get_account_details user=E-9012 role=branch_manager branch=central' },
         { text: '[2025-01-07T14:23:01.235Z] CTX  target_account=12345 target_branch=central' },
-        { text: '[2025-01-07T14:23:01.238Z] G1   policy=role-based-tool-access' },
-        { text: '[2025-01-07T14:23:01.240Z] G1   decision=PERMIT tools_visible=11 tools_total=12' },
-        { text: '[2025-01-07T14:23:01.245Z] G2   policy=branch-boundary-enforcement' },
-        { text: '[2025-01-07T14:23:01.248Z] G2   check=branch_match user_branch=central resource_branch=central' },
-        { text: '[2025-01-07T14:23:01.250Z] G2   decision=PERMIT' },
+        { text: '[2025-01-07T14:23:01.238Z] MC   policy=mcp-tool-control' },
+        { text: '[2025-01-07T14:23:01.240Z] MC   decision=PERMIT tools_granted=11 tools_total=12' },
+        { text: '[2025-01-07T14:23:01.245Z] MC   policy=branch-scope-condition' },
+        { text: '[2025-01-07T14:23:01.248Z] MC   check=branch_match user_branch=central resource_branch=central' },
+        { text: '[2025-01-07T14:23:01.250Z] MC   decision=PERMIT' },
         { text: '[2025-01-07T14:23:01.312Z] FWD  endpoint=mcp://acme-bank/account-management' },
         { text: '[2025-01-07T14:23:01.456Z] RSP  status=200 bytes=186' },
-        { text: '[2025-01-07T14:23:01.458Z] G3   policy=pii-masking' },
-        { text: '[2025-01-07T14:23:01.460Z] G3   field=ssn action=MASK original=123-45-6789 masked=XXX-XX-6789' },
+        { text: '[2025-01-07T14:23:01.458Z] OG   policy=output-guardrail-pii' },
+        { text: '[2025-01-07T14:23:01.460Z] OG   field=ssn action=MASK original=123-45-6789 masked=XXX-XX-6789' },
         { text: '[2025-01-07T14:23:01.462Z] DONE result=SUCCESS fields_masked=1' },
       ],
       withoutNote: 'SSN "123-45-6789" would be returned in plain text. No masking applied.',
@@ -196,29 +208,29 @@ const terminalOutputs = {
         { type: 'context', text: '  User: Bank Teller (E-1234) | Branch: Central' },
         { type: 'context', text: '  Target: Account #67890 | Branch: Downtown' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 1', text: 'Tool discovery filter' },
-        { type: 'context', text: '  Policy: role-based-tool-access' },
-        { type: 'context', text: '  Checking tool visibility for role "teller"...' },
-        { type: 'decision', tag: 'PASS', text: 'Tool visible (3 of 12 permitted)' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Checking tool grant for "teller"...' },
+        { type: 'decision', tag: 'PASS', text: 'Tool permitted (3 of 12 granted)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 2', text: 'Execution authorization' },
-        { type: 'context', text: '  Policy: branch-boundary-enforcement' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Parameter & scope check' },
+        { type: 'context', text: '  Policy: branch-scope-condition' },
         { type: 'context', text: '  Checking: user.branch == resource.branch' },
         { type: 'context', text: '  Central ≠ Downtown', slow: true },
         { type: 'blank', text: '' },
-        { type: 'deny', tag: 'DENY', text: 'Branch boundary violation' },
+        { type: 'deny', tag: 'DENY', text: 'Branch scope violation' },
         { type: 'deny-context', text: '  User branch "Central" cannot access "Downtown" resources' },
         { type: 'deny-context', text: '  Request blocked. MCP server was not contacted.' },
       ],
       raw: [
         { text: '[2025-01-07T14:23:01.234Z] REQ  tool=get_account_details user=E-1234 role=teller branch=central' },
         { text: '[2025-01-07T14:23:01.235Z] CTX  target_account=67890 target_branch=downtown' },
-        { text: '[2025-01-07T14:23:01.238Z] G1   policy=role-based-tool-access' },
-        { text: '[2025-01-07T14:23:01.240Z] G1   decision=PERMIT tools_visible=3 tools_total=12' },
-        { text: '[2025-01-07T14:23:01.245Z] G2   policy=branch-boundary-enforcement' },
-        { text: '[2025-01-07T14:23:01.248Z] G2   check=branch_match user_branch=central resource_branch=downtown' },
-        { text: '[2025-01-07T14:23:01.250Z] G2   decision=DENY reason="branch_boundary_violation"' },
-        { text: '[2025-01-07T14:23:01.251Z] DONE result=BLOCKED gate=2 mcp_contacted=false' },
+        { text: '[2025-01-07T14:23:01.238Z] MC   policy=mcp-tool-control' },
+        { text: '[2025-01-07T14:23:01.240Z] MC   decision=PERMIT tools_granted=3 tools_total=12' },
+        { text: '[2025-01-07T14:23:01.245Z] MC   policy=branch-scope-condition' },
+        { text: '[2025-01-07T14:23:01.248Z] MC   check=branch_match user_branch=central resource_branch=downtown' },
+        { text: '[2025-01-07T14:23:01.250Z] MC   decision=DENY reason="branch_scope_violation"' },
+        { text: '[2025-01-07T14:23:01.251Z] DONE result=BLOCKED stage=mcp_control mcp_contacted=false' },
       ],
       withoutNote: 'Request would succeed. Teller could access any branch\'s customer data.',
     },
@@ -228,29 +240,29 @@ const terminalOutputs = {
         { type: 'context', text: '  User: Loan Officer (E-5678) | Branch: Central' },
         { type: 'context', text: '  Target: Account #67890 | Branch: Downtown' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 1', text: 'Tool discovery filter' },
-        { type: 'context', text: '  Policy: role-based-tool-access' },
-        { type: 'context', text: '  Checking tool visibility for role "loan_officer"...' },
-        { type: 'decision', tag: 'PASS', text: 'Tool visible (7 of 12 permitted)' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Checking tool grant for "loan_officer"...' },
+        { type: 'decision', tag: 'PASS', text: 'Tool permitted (7 of 12 granted)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 2', text: 'Execution authorization' },
-        { type: 'context', text: '  Policy: branch-boundary-enforcement' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Parameter & scope check' },
+        { type: 'context', text: '  Policy: branch-scope-condition' },
         { type: 'context', text: '  Checking: user.branch == resource.branch' },
         { type: 'context', text: '  Central ≠ Downtown', slow: true },
         { type: 'blank', text: '' },
-        { type: 'deny', tag: 'DENY', text: 'Branch boundary violation' },
+        { type: 'deny', tag: 'DENY', text: 'Branch scope violation' },
         { type: 'deny-context', text: '  User branch "Central" cannot access "Downtown" resources' },
         { type: 'deny-context', text: '  Request blocked. MCP server was not contacted.' },
       ],
       raw: [
         { text: '[2025-01-07T14:23:01.234Z] REQ  tool=get_account_details user=E-5678 role=loan_officer branch=central' },
         { text: '[2025-01-07T14:23:01.235Z] CTX  target_account=67890 target_branch=downtown' },
-        { text: '[2025-01-07T14:23:01.238Z] G1   policy=role-based-tool-access' },
-        { text: '[2025-01-07T14:23:01.240Z] G1   decision=PERMIT tools_visible=7 tools_total=12' },
-        { text: '[2025-01-07T14:23:01.245Z] G2   policy=branch-boundary-enforcement' },
-        { text: '[2025-01-07T14:23:01.248Z] G2   check=branch_match user_branch=central resource_branch=downtown' },
-        { text: '[2025-01-07T14:23:01.250Z] G2   decision=DENY reason="branch_boundary_violation"' },
-        { text: '[2025-01-07T14:23:01.251Z] DONE result=BLOCKED gate=2 mcp_contacted=false' },
+        { text: '[2025-01-07T14:23:01.238Z] MC   policy=mcp-tool-control' },
+        { text: '[2025-01-07T14:23:01.240Z] MC   decision=PERMIT tools_granted=7 tools_total=12' },
+        { text: '[2025-01-07T14:23:01.245Z] MC   policy=branch-scope-condition' },
+        { text: '[2025-01-07T14:23:01.248Z] MC   check=branch_match user_branch=central resource_branch=downtown' },
+        { text: '[2025-01-07T14:23:01.250Z] MC   decision=DENY reason="branch_scope_violation"' },
+        { text: '[2025-01-07T14:23:01.251Z] DONE result=BLOCKED stage=mcp_control mcp_contacted=false' },
       ],
       withoutNote: 'Request would succeed. Loan officer could access any branch\'s data.',
     },
@@ -260,13 +272,13 @@ const terminalOutputs = {
         { type: 'context', text: '  User: Branch Manager (E-9012) | Branch: Central' },
         { type: 'context', text: '  Target: Account #67890 | Branch: Downtown' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 1', text: 'Tool discovery filter' },
-        { type: 'context', text: '  Policy: role-based-tool-access' },
-        { type: 'context', text: '  Checking tool visibility for role "branch_manager"...' },
-        { type: 'decision', tag: 'PASS', text: 'Tool visible (11 of 12 permitted)' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Checking tool grant for "branch_manager"...' },
+        { type: 'decision', tag: 'PASS', text: 'Tool permitted (11 of 12 granted)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 2', text: 'Execution authorization' },
-        { type: 'context', text: '  Policy: branch-boundary-enforcement' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Parameter & scope check' },
+        { type: 'context', text: '  Policy: branch-scope-condition' },
         { type: 'context', text: '  Checking scope permissions...' },
         { type: 'context', text: '  Role "branch_manager" has scope: all_branches' },
         { type: 'decision', tag: 'PASS', text: 'Cross-branch access permitted' },
@@ -274,8 +286,8 @@ const terminalOutputs = {
         { type: 'forward', text: '→ Forwarding to MCP server...' },
         { type: 'response', text: '← Response received (192 bytes)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 3', text: 'Response masking' },
-        { type: 'context', text: '  Policy: pii-masking' },
+        { type: 'gate', tag: 'OUTPUT GUARDRAIL', text: 'Sensitive-data masking' },
+        { type: 'context', text: '  Policy: output-guardrail (PII)' },
         { type: 'context', text: '  Scanning response fields...' },
         { type: 'context', text: '  Field "ssn" contains PII' },
         { type: 'mask', tag: 'MASK', text: 'ssn: 987-65-4321', transform: 'XXX-XX-4321' },
@@ -285,15 +297,15 @@ const terminalOutputs = {
       raw: [
         { text: '[2025-01-07T14:23:01.234Z] REQ  tool=get_account_details user=E-9012 role=branch_manager branch=central' },
         { text: '[2025-01-07T14:23:01.235Z] CTX  target_account=67890 target_branch=downtown' },
-        { text: '[2025-01-07T14:23:01.238Z] G1   policy=role-based-tool-access' },
-        { text: '[2025-01-07T14:23:01.240Z] G1   decision=PERMIT tools_visible=11 tools_total=12' },
-        { text: '[2025-01-07T14:23:01.245Z] G2   policy=branch-boundary-enforcement' },
-        { text: '[2025-01-07T14:23:01.248Z] G2   check=scope user_scope=all_branches' },
-        { text: '[2025-01-07T14:23:01.250Z] G2   decision=PERMIT' },
+        { text: '[2025-01-07T14:23:01.238Z] MC   policy=mcp-tool-control' },
+        { text: '[2025-01-07T14:23:01.240Z] MC   decision=PERMIT tools_granted=11 tools_total=12' },
+        { text: '[2025-01-07T14:23:01.245Z] MC   policy=branch-scope-condition' },
+        { text: '[2025-01-07T14:23:01.248Z] MC   check=scope user_scope=all_branches' },
+        { text: '[2025-01-07T14:23:01.250Z] MC   decision=PERMIT' },
         { text: '[2025-01-07T14:23:01.312Z] FWD  endpoint=mcp://acme-bank/account-management' },
         { text: '[2025-01-07T14:23:01.456Z] RSP  status=200 bytes=192' },
-        { text: '[2025-01-07T14:23:01.458Z] G3   policy=pii-masking' },
-        { text: '[2025-01-07T14:23:01.460Z] G3   field=ssn action=MASK original=987-65-4321 masked=XXX-XX-4321' },
+        { text: '[2025-01-07T14:23:01.458Z] OG   policy=output-guardrail-pii' },
+        { text: '[2025-01-07T14:23:01.460Z] OG   field=ssn action=MASK original=987-65-4321 masked=XXX-XX-4321' },
         { text: '[2025-01-07T14:23:01.462Z] DONE result=SUCCESS fields_masked=1' },
       ],
       withoutNote: 'Any user could access any branch\'s data. No scope enforcement.',
@@ -308,24 +320,24 @@ const terminalOutputs = {
         { type: 'context', text: '  User: Bank Teller (E-1234) | Branch: Central' },
         { type: 'context', text: '  Params: { loan_id: "L-2024-0892", amount: $75,000 }' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 1', text: 'Tool discovery filter' },
-        { type: 'context', text: '  Policy: role-based-tool-access' },
-        { type: 'context', text: '  Checking tool visibility for role "teller"...' },
-        { type: 'context', text: '  Tool "approve_loan" not in permitted set', slow: true },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Checking tool grant for "teller"...' },
+        { type: 'context', text: '  Tool "approve_loan" not granted (deny by default)', slow: true },
         { type: 'blank', text: '' },
-        { type: 'deny', tag: 'DENY', text: 'Tool not available' },
-        { type: 'deny-context', text: '  Role "teller" cannot see or use "approve_loan"' },
-        { type: 'deny-context', text: '  Tool is hidden from this user\'s agent' },
+        { type: 'deny', tag: 'DENY', text: 'Tool not permitted' },
+        { type: 'deny-context', text: '  Role "teller" has no grant for "approve_loan"' },
+        { type: 'deny-context', text: '  Tool is not exposed to this identity\'s agent' },
         { type: 'deny-context', text: '  Request blocked. MCP server was not contacted.' },
       ],
       raw: [
         { text: '[2025-01-07T14:23:01.234Z] REQ  tool=approve_loan user=E-1234 role=teller branch=central' },
         { text: '[2025-01-07T14:23:01.235Z] CTX  loan_id=L-2024-0892 amount=75000' },
-        { text: '[2025-01-07T14:23:01.238Z] G1   policy=role-based-tool-access' },
-        { text: '[2025-01-07T14:23:01.240Z] G1   decision=DENY reason="tool_not_permitted" tool=approve_loan role=teller' },
-        { text: '[2025-01-07T14:23:01.241Z] DONE result=BLOCKED gate=1 mcp_contacted=false' },
+        { text: '[2025-01-07T14:23:01.238Z] MC   policy=mcp-tool-control' },
+        { text: '[2025-01-07T14:23:01.240Z] MC   decision=DENY reason="tool_not_granted" tool=approve_loan role=teller' },
+        { text: '[2025-01-07T14:23:01.241Z] DONE result=BLOCKED stage=mcp_control mcp_contacted=false' },
       ],
-      withoutNote: 'Tool would be visible. Teller\'s agent could attempt loan approvals.',
+      withoutNote: 'Tool would be exposed. Teller\'s agent could attempt loan approvals.',
     },
     loan_officer: {
       readable: [
@@ -333,17 +345,17 @@ const terminalOutputs = {
         { type: 'context', text: '  User: Loan Officer (E-5678) | Branch: Central' },
         { type: 'context', text: '  Params: { loan_id: "L-2024-0892", amount: $75,000 }' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 1', text: 'Tool discovery filter' },
-        { type: 'context', text: '  Policy: role-based-tool-access' },
-        { type: 'context', text: '  Checking tool visibility for role "loan_officer"...' },
-        { type: 'decision', tag: 'PASS', text: 'Tool visible (7 of 12 permitted)' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Checking tool grant for "loan_officer"...' },
+        { type: 'decision', tag: 'PASS', text: 'Tool permitted (7 of 12 granted)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 2', text: 'Execution authorization' },
-        { type: 'context', text: '  Policy: loan-approval-limits' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Parameter & scope check' },
+        { type: 'context', text: '  Policy: parameter-limit-condition' },
         { type: 'context', text: '  Checking: amount <= role.max_approval' },
         { type: 'context', text: '  $75,000 > $50,000 (loan_officer limit)', slow: true },
         { type: 'blank', text: '' },
-        { type: 'deny', tag: 'DENY', text: 'Approval limit exceeded' },
+        { type: 'deny', tag: 'DENY', text: 'Parameter condition failed' },
         { type: 'deny-context', text: '  Loan amount $75,000 exceeds limit of $50,000' },
         { type: 'deny-context', text: '  Suggestion: Escalate to Branch Manager' },
         { type: 'deny-context', text: '  Request blocked. MCP server was not contacted.' },
@@ -351,12 +363,12 @@ const terminalOutputs = {
       raw: [
         { text: '[2025-01-07T14:23:01.234Z] REQ  tool=approve_loan user=E-5678 role=loan_officer branch=central' },
         { text: '[2025-01-07T14:23:01.235Z] CTX  loan_id=L-2024-0892 amount=75000' },
-        { text: '[2025-01-07T14:23:01.238Z] G1   policy=role-based-tool-access' },
-        { text: '[2025-01-07T14:23:01.240Z] G1   decision=PERMIT tools_visible=7 tools_total=12' },
-        { text: '[2025-01-07T14:23:01.245Z] G2   policy=loan-approval-limits' },
-        { text: '[2025-01-07T14:23:01.248Z] G2   check=amount_limit requested=75000 max=50000' },
-        { text: '[2025-01-07T14:23:01.250Z] G2   decision=DENY reason="approval_limit_exceeded"' },
-        { text: '[2025-01-07T14:23:01.251Z] DONE result=BLOCKED gate=2 mcp_contacted=false' },
+        { text: '[2025-01-07T14:23:01.238Z] MC   policy=mcp-tool-control' },
+        { text: '[2025-01-07T14:23:01.240Z] MC   decision=PERMIT tools_granted=7 tools_total=12' },
+        { text: '[2025-01-07T14:23:01.245Z] MC   policy=parameter-limit-condition' },
+        { text: '[2025-01-07T14:23:01.248Z] MC   check=amount_limit requested=75000 max=50000' },
+        { text: '[2025-01-07T14:23:01.250Z] MC   decision=DENY reason="parameter_limit_exceeded"' },
+        { text: '[2025-01-07T14:23:01.251Z] DONE result=BLOCKED stage=mcp_control mcp_contacted=false' },
       ],
       withoutNote: 'No limit enforcement. Loan officer could approve any amount.',
     },
@@ -366,13 +378,13 @@ const terminalOutputs = {
         { type: 'context', text: '  User: Branch Manager (E-9012) | Branch: Central' },
         { type: 'context', text: '  Params: { loan_id: "L-2024-0892", amount: $75,000 }' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 1', text: 'Tool discovery filter' },
-        { type: 'context', text: '  Policy: role-based-tool-access' },
-        { type: 'context', text: '  Checking tool visibility for role "branch_manager"...' },
-        { type: 'decision', tag: 'PASS', text: 'Tool visible (11 of 12 permitted)' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Checking tool grant for "branch_manager"...' },
+        { type: 'decision', tag: 'PASS', text: 'Tool permitted (11 of 12 granted)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 2', text: 'Execution authorization' },
-        { type: 'context', text: '  Policy: loan-approval-limits' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Parameter & scope check' },
+        { type: 'context', text: '  Policy: parameter-limit-condition' },
         { type: 'context', text: '  Checking: amount <= role.max_approval' },
         { type: 'context', text: '  $75,000 <= $500,000 (branch_manager limit)' },
         { type: 'decision', tag: 'PASS', text: 'Within approval authority' },
@@ -380,8 +392,8 @@ const terminalOutputs = {
         { type: 'forward', text: '→ Forwarding to MCP server...' },
         { type: 'response', text: '← Response received (94 bytes)' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 3', text: 'Response masking' },
-        { type: 'context', text: '  Policy: pii-masking' },
+        { type: 'gate', tag: 'OUTPUT GUARDRAIL', text: 'Sensitive-data masking' },
+        { type: 'context', text: '  Policy: output-guardrail (PII)' },
         { type: 'context', text: '  Scanning response fields...' },
         { type: 'context', text: '  No sensitive fields detected' },
         { type: 'decision', tag: 'PASS', text: 'No masking required' },
@@ -391,15 +403,15 @@ const terminalOutputs = {
       raw: [
         { text: '[2025-01-07T14:23:01.234Z] REQ  tool=approve_loan user=E-9012 role=branch_manager branch=central' },
         { text: '[2025-01-07T14:23:01.235Z] CTX  loan_id=L-2024-0892 amount=75000' },
-        { text: '[2025-01-07T14:23:01.238Z] G1   policy=role-based-tool-access' },
-        { text: '[2025-01-07T14:23:01.240Z] G1   decision=PERMIT tools_visible=11 tools_total=12' },
-        { text: '[2025-01-07T14:23:01.245Z] G2   policy=loan-approval-limits' },
-        { text: '[2025-01-07T14:23:01.248Z] G2   check=amount_limit requested=75000 max=500000' },
-        { text: '[2025-01-07T14:23:01.250Z] G2   decision=PERMIT' },
+        { text: '[2025-01-07T14:23:01.238Z] MC   policy=mcp-tool-control' },
+        { text: '[2025-01-07T14:23:01.240Z] MC   decision=PERMIT tools_granted=11 tools_total=12' },
+        { text: '[2025-01-07T14:23:01.245Z] MC   policy=parameter-limit-condition' },
+        { text: '[2025-01-07T14:23:01.248Z] MC   check=amount_limit requested=75000 max=500000' },
+        { text: '[2025-01-07T14:23:01.250Z] MC   decision=PERMIT' },
         { text: '[2025-01-07T14:23:01.312Z] FWD  endpoint=mcp://acme-bank/loan-services' },
         { text: '[2025-01-07T14:23:01.456Z] RSP  status=200 bytes=94' },
-        { text: '[2025-01-07T14:23:01.458Z] G3   policy=pii-masking' },
-        { text: '[2025-01-07T14:23:01.460Z] G3   decision=PASS fields_masked=0' },
+        { text: '[2025-01-07T14:23:01.458Z] OG   policy=output-guardrail-pii' },
+        { text: '[2025-01-07T14:23:01.460Z] OG   decision=PASS fields_masked=0' },
         { text: '[2025-01-07T14:23:01.462Z] DONE result=SUCCESS' },
       ],
       withoutNote: 'No approval limits enforced. Any user could approve any loan amount.',
@@ -414,24 +426,24 @@ const terminalOutputs = {
         { type: 'context', text: '  User: Bank Teller (E-1234) | Branch: Central' },
         { type: 'context', text: '  Params: { account_id: "12345", new_limit: $50,000 }' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 1', text: 'Tool discovery filter' },
-        { type: 'context', text: '  Policy: admin-tool-restriction' },
-        { type: 'context', text: '  Checking tool visibility for role "teller"...' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Checking tool grant for "teller"...' },
         { type: 'context', text: '  Tool "override_transaction_limit" requires sysadmin', slow: true },
         { type: 'blank', text: '' },
-        { type: 'deny', tag: 'DENY', text: 'Tool not available' },
-        { type: 'deny-context', text: '  Administrative tool hidden from role "teller"' },
-        { type: 'deny-context', text: '  This tool is not visible to the agent' },
+        { type: 'deny', tag: 'DENY', text: 'Tool not permitted' },
+        { type: 'deny-context', text: '  Administrative tool not granted to role "teller"' },
+        { type: 'deny-context', text: '  This tool is not exposed to the agent' },
         { type: 'deny-context', text: '  Request blocked. MCP server was not contacted.' },
       ],
       raw: [
         { text: '[2025-01-07T14:23:01.234Z] REQ  tool=override_transaction_limit user=E-1234 role=teller branch=central' },
         { text: '[2025-01-07T14:23:01.235Z] CTX  account_id=12345 new_limit=50000' },
-        { text: '[2025-01-07T14:23:01.238Z] G1   policy=admin-tool-restriction' },
-        { text: '[2025-01-07T14:23:01.240Z] G1   decision=DENY reason="requires_sysadmin" role=teller clearance=standard' },
-        { text: '[2025-01-07T14:23:01.241Z] DONE result=BLOCKED gate=1 mcp_contacted=false' },
+        { text: '[2025-01-07T14:23:01.238Z] MC   policy=mcp-tool-control' },
+        { text: '[2025-01-07T14:23:01.240Z] MC   decision=DENY reason="requires_sysadmin" role=teller clearance=standard' },
+        { text: '[2025-01-07T14:23:01.241Z] DONE result=BLOCKED stage=mcp_control mcp_contacted=false' },
       ],
-      withoutNote: 'Admin tools visible to all. Any user\'s agent could discover sensitive operations.',
+      withoutNote: 'Admin tools exposed to all. Any user\'s agent could discover sensitive operations.',
     },
     loan_officer: {
       readable: [
@@ -439,24 +451,24 @@ const terminalOutputs = {
         { type: 'context', text: '  User: Loan Officer (E-5678) | Branch: Central' },
         { type: 'context', text: '  Params: { account_id: "12345", new_limit: $50,000 }' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 1', text: 'Tool discovery filter' },
-        { type: 'context', text: '  Policy: admin-tool-restriction' },
-        { type: 'context', text: '  Checking tool visibility for role "loan_officer"...' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Checking tool grant for "loan_officer"...' },
         { type: 'context', text: '  Tool "override_transaction_limit" requires sysadmin', slow: true },
         { type: 'blank', text: '' },
-        { type: 'deny', tag: 'DENY', text: 'Tool not available' },
-        { type: 'deny-context', text: '  Administrative tool hidden from role "loan_officer"' },
-        { type: 'deny-context', text: '  This tool is not visible to the agent' },
+        { type: 'deny', tag: 'DENY', text: 'Tool not permitted' },
+        { type: 'deny-context', text: '  Administrative tool not granted to role "loan_officer"' },
+        { type: 'deny-context', text: '  This tool is not exposed to the agent' },
         { type: 'deny-context', text: '  Request blocked. MCP server was not contacted.' },
       ],
       raw: [
         { text: '[2025-01-07T14:23:01.234Z] REQ  tool=override_transaction_limit user=E-5678 role=loan_officer branch=central' },
         { text: '[2025-01-07T14:23:01.235Z] CTX  account_id=12345 new_limit=50000' },
-        { text: '[2025-01-07T14:23:01.238Z] G1   policy=admin-tool-restriction' },
-        { text: '[2025-01-07T14:23:01.240Z] G1   decision=DENY reason="requires_sysadmin" role=loan_officer clearance=elevated' },
-        { text: '[2025-01-07T14:23:01.241Z] DONE result=BLOCKED gate=1 mcp_contacted=false' },
+        { text: '[2025-01-07T14:23:01.238Z] MC   policy=mcp-tool-control' },
+        { text: '[2025-01-07T14:23:01.240Z] MC   decision=DENY reason="requires_sysadmin" role=loan_officer clearance=elevated' },
+        { text: '[2025-01-07T14:23:01.241Z] DONE result=BLOCKED stage=mcp_control mcp_contacted=false' },
       ],
-      withoutNote: 'Admin tools visible to all. Any user\'s agent could discover sensitive operations.',
+      withoutNote: 'Admin tools exposed to all. Any user\'s agent could discover sensitive operations.',
     },
     branch_manager: {
       readable: [
@@ -464,27 +476,125 @@ const terminalOutputs = {
         { type: 'context', text: '  User: Branch Manager (E-9012) | Branch: Central' },
         { type: 'context', text: '  Params: { account_id: "12345", new_limit: $50,000 }' },
         { type: 'blank', text: '' },
-        { type: 'gate', tag: 'GATE 1', text: 'Tool discovery filter' },
-        { type: 'context', text: '  Policy: admin-tool-restriction' },
-        { type: 'context', text: '  Checking tool visibility for role "branch_manager"...' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Checking tool grant for "branch_manager"...' },
         { type: 'context', text: '  Tool "override_transaction_limit" requires sysadmin' },
         { type: 'context', text: '  Role "branch_manager" clearance: executive' },
         { type: 'context', text: '  Required clearance: system_admin', slow: true },
         { type: 'blank', text: '' },
         { type: 'deny', tag: 'DENY', text: 'Insufficient clearance' },
         { type: 'deny-context', text: '  Tool requires system administrator privileges' },
-        { type: 'deny-context', text: '  Even "branch_manager" cannot access this tool' },
+        { type: 'deny-context', text: '  Even "branch_manager" has no grant for this tool' },
         { type: 'deny-context', text: '  Request blocked. MCP server was not contacted.' },
       ],
       raw: [
         { text: '[2025-01-07T14:23:01.234Z] REQ  tool=override_transaction_limit user=E-9012 role=branch_manager branch=central' },
         { text: '[2025-01-07T14:23:01.235Z] CTX  account_id=12345 new_limit=50000' },
-        { text: '[2025-01-07T14:23:01.238Z] G1   policy=admin-tool-restriction' },
-        { text: '[2025-01-07T14:23:01.240Z] G1   check=clearance role=branch_manager clearance=executive required=system_admin' },
-        { text: '[2025-01-07T14:23:01.242Z] G1   decision=DENY reason="insufficient_clearance"' },
-        { text: '[2025-01-07T14:23:01.243Z] DONE result=BLOCKED gate=1 mcp_contacted=false' },
+        { text: '[2025-01-07T14:23:01.238Z] MC   policy=mcp-tool-control' },
+        { text: '[2025-01-07T14:23:01.240Z] MC   check=clearance role=branch_manager clearance=executive required=system_admin' },
+        { text: '[2025-01-07T14:23:01.242Z] MC   decision=DENY reason="insufficient_clearance"' },
+        { text: '[2025-01-07T14:23:01.243Z] DONE result=BLOCKED stage=mcp_control mcp_contacted=false' },
       ],
-      withoutNote: 'All 12 tools visible to all users. No privilege separation for admin operations.',
+      withoutNote: 'All 12 tools exposed to all users. No privilege separation for admin operations.',
+    },
+  },
+
+  // ==================== RESTRICTED QUERY (INPUT GUARDRAIL) ====================
+  restricted_query: {
+    teller: {
+      readable: [
+        { type: 'request', text: '→ Incoming prompt: "What is the compensation for employee E-4501?"' },
+        { type: 'context', text: '  User: Bank Teller (E-1234) | Branch: Central' },
+        { type: 'context', text: '  Agent: acme-assistant (LangChain)' },
+        { type: 'blank', text: '' },
+        { type: 'gate', tag: 'INPUT GUARDRAIL', text: 'Prompt intent screening' },
+        { type: 'context', text: '  Policy: input-intent-control' },
+        { type: 'context', text: '  Classifying prompt intent...' },
+        { type: 'context', text: '  Detected intent: compensation (HR)', slow: true },
+        { type: 'context', text: '  Role "teller" permitted intents: account_servicing, transactions' },
+        { type: 'blank', text: '' },
+        { type: 'deny', tag: 'DENY', text: 'Intent not permitted' },
+        { type: 'deny-context', text: '  "compensation" is outside this identity\'s allowed intents' },
+        { type: 'deny-context', text: '  Prompt blocked before reaching the agent. No tool was called.' },
+      ],
+      raw: [
+        { text: '[2025-01-07T14:23:01.234Z] REQ  prompt_intent=? user=E-1234 role=teller agent=acme-assistant' },
+        { text: '[2025-01-07T14:23:01.236Z] IG   policy=input-intent-control' },
+        { text: '[2025-01-07T14:23:01.239Z] IG   detected_intent=compensation domain=HR' },
+        { text: '[2025-01-07T14:23:01.241Z] IG   permitted_intents=[account_servicing,transactions]' },
+        { text: '[2025-01-07T14:23:01.243Z] IG   decision=DENY reason="intent_not_permitted"' },
+        { text: '[2025-01-07T14:23:01.244Z] DONE result=BLOCKED stage=input_guardrail agent_invoked=false' },
+      ],
+      withoutNote: 'Without input guardrails the prompt reaches the agent regardless of role. Any user could ask about restricted HR data.',
+    },
+    loan_officer: {
+      readable: [
+        { type: 'request', text: '→ Incoming prompt: "What is the compensation for employee E-4501?"' },
+        { type: 'context', text: '  User: Loan Officer (E-5678) | Branch: Central' },
+        { type: 'context', text: '  Agent: acme-assistant (LangChain)' },
+        { type: 'blank', text: '' },
+        { type: 'gate', tag: 'INPUT GUARDRAIL', text: 'Prompt intent screening' },
+        { type: 'context', text: '  Policy: input-intent-control' },
+        { type: 'context', text: '  Classifying prompt intent...' },
+        { type: 'context', text: '  Detected intent: compensation (HR)', slow: true },
+        { type: 'context', text: '  Role "loan_officer" permitted intents: account_servicing, transactions, lending' },
+        { type: 'blank', text: '' },
+        { type: 'deny', tag: 'DENY', text: 'Intent not permitted' },
+        { type: 'deny-context', text: '  "compensation" is outside this identity\'s allowed intents' },
+        { type: 'deny-context', text: '  Prompt blocked before reaching the agent. No tool was called.' },
+      ],
+      raw: [
+        { text: '[2025-01-07T14:23:01.234Z] REQ  prompt_intent=? user=E-5678 role=loan_officer agent=acme-assistant' },
+        { text: '[2025-01-07T14:23:01.236Z] IG   policy=input-intent-control' },
+        { text: '[2025-01-07T14:23:01.239Z] IG   detected_intent=compensation domain=HR' },
+        { text: '[2025-01-07T14:23:01.241Z] IG   permitted_intents=[account_servicing,transactions,lending]' },
+        { text: '[2025-01-07T14:23:01.243Z] IG   decision=DENY reason="intent_not_permitted"' },
+        { text: '[2025-01-07T14:23:01.244Z] DONE result=BLOCKED stage=input_guardrail agent_invoked=false' },
+      ],
+      withoutNote: 'Without input guardrails the prompt reaches the agent regardless of role. Any user could ask about restricted HR data.',
+    },
+    branch_manager: {
+      readable: [
+        { type: 'request', text: '→ Incoming prompt: "What is the compensation for employee E-4501?"' },
+        { type: 'context', text: '  User: Branch Manager (E-9012) | Branch: Central' },
+        { type: 'context', text: '  Agent: acme-assistant (LangChain)' },
+        { type: 'blank', text: '' },
+        { type: 'gate', tag: 'INPUT GUARDRAIL', text: 'Prompt intent screening' },
+        { type: 'context', text: '  Policy: input-intent-control' },
+        { type: 'context', text: '  Detected intent: compensation (HR)' },
+        { type: 'context', text: '  Role "branch_manager" permitted intents include HR' },
+        { type: 'decision', tag: 'PASS', text: 'Intent permitted' },
+        { type: 'blank', text: '' },
+        { type: 'gate', tag: 'MCP CONTROL', text: 'Tool authorization' },
+        { type: 'context', text: '  Policy: mcp-tool-control' },
+        { type: 'context', text: '  Tool "get_employee_records" granted (scope: direct_reports)' },
+        { type: 'decision', tag: 'PASS', text: 'Tool permitted' },
+        { type: 'blank', text: '' },
+        { type: 'forward', text: '→ Forwarding to MCP server...' },
+        { type: 'response', text: '← Response received (214 bytes)' },
+        { type: 'blank', text: '' },
+        { type: 'gate', tag: 'OUTPUT GUARDRAIL', text: 'Sensitive-data masking' },
+        { type: 'context', text: '  Policy: output-guardrail (PII)' },
+        { type: 'context', text: '  Scanning response fields...' },
+        { type: 'context', text: '  Field "ssn" contains PII' },
+        { type: 'mask', tag: 'MASK', text: 'ssn: 456-78-9012', transform: 'XXX-XX-9012' },
+        { type: 'blank', text: '' },
+        { type: 'done', tag: 'DONE', text: 'Response delivered to agent (1 field masked)' },
+      ],
+      raw: [
+        { text: '[2025-01-07T14:23:01.234Z] REQ  prompt_intent=? user=E-9012 role=branch_manager agent=acme-assistant' },
+        { text: '[2025-01-07T14:23:01.236Z] IG   policy=input-intent-control detected_intent=compensation domain=HR' },
+        { text: '[2025-01-07T14:23:01.238Z] IG   decision=PERMIT' },
+        { text: '[2025-01-07T14:23:01.245Z] MC   policy=mcp-tool-control tool=get_employee_records scope=direct_reports' },
+        { text: '[2025-01-07T14:23:01.250Z] MC   decision=PERMIT' },
+        { text: '[2025-01-07T14:23:01.312Z] FWD  endpoint=mcp://acme-bank/admin-operations' },
+        { text: '[2025-01-07T14:23:01.456Z] RSP  status=200 bytes=214' },
+        { text: '[2025-01-07T14:23:01.458Z] OG   policy=output-guardrail-pii' },
+        { text: '[2025-01-07T14:23:01.460Z] OG   field=ssn action=MASK original=456-78-9012 masked=XXX-XX-9012' },
+        { text: '[2025-01-07T14:23:01.462Z] DONE result=SUCCESS fields_masked=1' },
+      ],
+      withoutNote: 'Without input guardrails the question reaches the agent regardless of role; without output guardrails the SSN returns in plain text.',
     },
   },
 };
@@ -649,7 +759,7 @@ const Header = ({ isSticky }) => {
           <div className="logo-icon">
             <Shield size={18} />
           </div>
-          <span className="logo-text">PlainID MCP Authorizer</span>
+          <span className="logo-text">PlainID Edge</span>
           <AlphaTag />
         </div>
         <nav className="header-nav">
@@ -674,15 +784,16 @@ const HeroSection = () => {
 
   return (
     <section className="hero">
-      <div className="hero-label">MCP Authorization Proxy</div>
+      <div className="hero-label">MCP Gateway</div>
       <h1 className="hero-title">
         Control what your<br />
         AI agents <span className="accent">see</span><br />
         and <span className="accent">do</span>.
       </h1>
       <p className="hero-subtitle">
-        PlainID sits between your agents and MCP servers.
-        Every tool call. Every response. Authorized in real-time.
+        PlainID Edge sits between your agents and MCP servers — screening what
+        users can ask, which tools agents can call, and what data comes back.
+        All in real time.
       </p>
       <div className="scroll-indicator" onClick={scrollToDemo}>
         <span className="scroll-line"></span>
@@ -729,48 +840,49 @@ const ProblemSection = () => (
 const SolutionSection = () => (
   <section className="solution-section">
     <div className="solution-left">
-      <div className="section-label light">02 — THE SOLUTION</div>
-      <h2>Three gates of<br />authorization.</h2>
+      <div className="section-label light">02 — THE MODEL</div>
+      <h2>One policy,<br />enforced inline.</h2>
       <p>
-        PlainID intercepts every interaction between your AI agent and MCP servers.
-        We filter tools, validate execution, and mask responses — all based on policy.
+        PlainID Edge evaluates a single policy on every interaction between your
+        AI agents and MCP servers — screening prompts, authorizing tools and their
+        parameters, and masking sensitive data before it reaches the agent.
       </p>
     </div>
     <div className="solution-right">
       <div className="pipeline-vertical">
         <div className="pipeline-step">
-          <div className="step-marker user">U</div>
+          <div className="step-marker identity">ID</div>
           <div className="step-content">
-            <h4>User Request</h4>
-            <p>Authenticated user initiates action via AI agent</p>
+            <h4>Identity &amp; Agent</h4>
+            <p>Who initiates the request, and which agent acts for them</p>
           </div>
         </div>
         <div className="pipeline-step">
-          <div className="step-marker gate1">1</div>
+          <div className="step-marker input">I</div>
           <div className="step-content">
-            <h4>Gate 1: Tool Filter</h4>
-            <p>Hide unauthorized tools from agent's view</p>
+            <h4>Input Guardrail</h4>
+            <p>Block prompts the user isn't permitted to ask</p>
           </div>
         </div>
         <div className="pipeline-step">
-          <div className="step-marker gate2">2</div>
+          <div className="step-marker control">M</div>
           <div className="step-content">
-            <h4>Gate 2: Execution Auth</h4>
-            <p>Validate parameters, scopes, and limits</p>
+            <h4>MCP Control</h4>
+            <p>Authorize the tool and its parameters — deny by default</p>
           </div>
         </div>
         <div className="pipeline-step">
-          <div className="step-marker gate3">3</div>
+          <div className="step-marker output">O</div>
           <div className="step-content">
-            <h4>Gate 3: Response Mask</h4>
-            <p>Redact sensitive fields before delivery</p>
+            <h4>Output Guardrail</h4>
+            <p>Mask PII, PHI, PCI, and MNPI before the response returns</p>
           </div>
         </div>
         <div className="pipeline-step">
           <div className="step-marker done">✓</div>
           <div className="step-content">
-            <h4>Safe Response</h4>
-            <p>Agent receives only what policy permits</p>
+            <h4>Authorized Response</h4>
+            <p>The agent receives only what policy permits</p>
           </div>
         </div>
       </div>
@@ -938,7 +1050,7 @@ const Terminal = ({
       <div className="terminal-body" ref={terminalBodyRef}>
         {lines.length === 0 ? (
           <div className="terminal-empty">
-            <span className="comment">// Select a role and scenario, then run</span>
+            <span className="comment">// Select an identity and scenario, then run</span>
             <span className="cursor blink">_</span>
           </div>
         ) : (
@@ -1106,7 +1218,7 @@ const DemoSection = () => {
       if (currentLine.tag && charIndex === 0) {
         // Play appropriate sound
         if (soundEnabled) {
-          if (currentLine.tag.includes('GATE')) {
+          if (['INPUT GUARDRAIL', 'MCP CONTROL', 'OUTPUT GUARDRAIL'].includes(currentLine.tag)) {
             soundSystem.playGateStart();
           } else if (currentLine.tag === 'PASS' || currentLine.tag === 'DONE') {
             soundSystem.playPass();
@@ -1242,7 +1354,7 @@ const DemoSection = () => {
           <div className="config-header">Configuration</div>
           <div className="config-body">
             <div className="config-group">
-              <div className="config-label">Role</div>
+              <div className="config-label">Identity</div>
               <div className="role-list">
                 {['teller', 'loan_officer', 'branch_manager'].map(role => (
                   <RoleCard
@@ -1300,7 +1412,7 @@ const IncidentsSection = () => (
   <section className="incidents-section" id="incidents">
     <div className="section-label">04 — REAL WORLD</div>
     <h2 className="section-title">Incidents we prevent</h2>
-    <p className="section-subtitle">Recent MCP security events and how PlainID mitigates them.</p>
+    <p className="section-subtitle">Recent MCP security events and how PlainID Edge mitigates them.</p>
 
     <div className="incidents-table">
       <div className="incidents-header">
@@ -1341,7 +1453,7 @@ const Footer = () => (
   <footer className="site-footer">
     <div className="footer-logo">
       <Shield size={16} />
-      <span>PlainID MCP Authorizer</span>
+      <span>PlainID Edge</span>
       <AlphaTag />
     </div>
     <div className="footer-meta">
